@@ -4,6 +4,8 @@ Local-first personal health management and daily training recommender. Sources w
 
 Designed for a single user. All data stays on disk; nothing is sent to any external LLM service.
 
+> **Tested data source:** this repo has only been exercised with a **Garmin Forerunner 255** syncing into **Intervals.icu**. Other watches / data sources (Apple Watch, Wahoo, Polar, COROS, etc.) and other Garmin models are *not guaranteed* to work — sport-name labels, intensity scales, sleep-duration units, and HRV methodology can differ, which would silently degrade weekly goal accounting and the `is_hard` heuristic even though the code won't crash. Use with caution outside this tested setup.
+
 ## Stack
 
 Python 3.12 · uv · Typer · httpx · pydantic · pandas · sqlite3 · Streamlit · pytest.
