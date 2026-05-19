@@ -4,25 +4,41 @@
 
 wellness:
   hrv: hrv
+  hrvSDNN: hrv_sdnn
   restingHR: rhr
   rhr: rhr
+  avgSleepingHR: avg_sleeping_hr
   sleepScore: garmin_sleep_score
   sleep_score: garmin_sleep_score
+  sleepQuality: sleep_quality_score   # Garmin's quality score (0-100)
   sleepSecs: sleep_duration_sec
   sleepTime: sleep_duration_sec
   sleepDurationSec: sleep_duration_sec
-  sleep_quality: sleep_quality
   sleepLatency: sleep_latency_min
+  respiration: respiration
+  spO2: spo2
   soreness: soreness
   fatigue: fatigue
   motivation: motivation
+  mood: mood
   stress: stress
   weight: weight_kg
+  bodyFat: body_fat_pct
+  abdomen: waist_cm
+  systolic: bp_systolic
+  diastolic: bp_diastolic
+  vo2max: vo2max
+  steps: steps
+  readiness: garmin_readiness   # Garmin/Intervals own readiness score, for cross-check
   illness: illness
   injury: injury
   ctl: ctl
   atl: atl
+  ctlLoad: ctl_load
+  atlLoad: atl_load
   rampRate: ramp_rate
+  comments: comments
+  updated: source_updated_at    # source-side modification time
   date: date
   id: date          # some endpoints return id == date string
 
@@ -32,6 +48,7 @@ activity:
   start_date: date_utc
   type: sport
   name: name
+  description: description
   moving_time: duration_sec
   elapsed_time: elapsed_sec
   distance: distance_m
@@ -40,10 +57,29 @@ activity:
   trainingLoad: load
   icu_intensity: intensity
   intensity: intensity
+  icu_efficiency_factor: efficiency_factor
+  icu_variability_index: variability_index
+  decoupling: decoupling
+  polarization_index: polarization_index
   average_heartrate: avg_hr
   average_watts: avg_power
   max_heartrate: max_hr
+  average_cadence: avg_cadence
+  average_speed: avg_speed
+  max_speed: max_speed
+  total_elevation_gain: elevation_gain_m
   calories: calories
+  kg_lifted: kg_lifted
+  feel: feel
+  perceived_exertion: perceived_exertion
+  session_rpe: session_rpe
+  icu_ftp: ftp
+  lthr: lthr
+  trimp: trimp
+  hr_load: hr_load
+  pace_load: pace_load
+  power_load: power_load
+  updated: source_updated_at
 
 interval:
   type: type

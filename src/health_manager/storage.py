@@ -21,7 +21,7 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_STATEMENTS: list[str] = [
     """
@@ -34,20 +34,37 @@ SCHEMA_STATEMENTS: list[str] = [
     CREATE TABLE IF NOT EXISTS wellness_daily (
         date TEXT PRIMARY KEY,
         hrv REAL,
+        hrv_sdnn REAL,
         rhr REAL,
+        avg_sleeping_hr REAL,
         garmin_sleep_score REAL,
+        sleep_quality_score REAL,
         sleep_duration_min REAL,
         sleep_latency_min REAL,
+        respiration REAL,
+        spo2 REAL,
         soreness REAL,
         fatigue REAL,
         motivation REAL,
+        mood REAL,
         stress REAL,
         weight_kg REAL,
+        body_fat_pct REAL,
+        waist_cm REAL,
+        bp_systolic REAL,
+        bp_diastolic REAL,
+        vo2max REAL,
+        steps REAL,
+        garmin_readiness REAL,
         illness INTEGER,
         injury INTEGER,
         ctl REAL,
         atl REAL,
+        ctl_load REAL,
+        atl_load REAL,
         ramp_rate REAL,
+        comments TEXT,
+        source_updated_at TEXT,
         raw_json TEXT
     )
     """,
@@ -58,15 +75,35 @@ SCHEMA_STATEMENTS: list[str] = [
         sport TEXT,
         type TEXT,
         name TEXT,
+        description TEXT,
         duration_min REAL,
         elapsed_min REAL,
         distance_m REAL,
         load REAL,
         intensity REAL,
+        efficiency_factor REAL,
+        variability_index REAL,
+        decoupling REAL,
+        polarization_index REAL,
         avg_hr REAL,
         max_hr REAL,
         avg_power REAL,
+        avg_cadence REAL,
+        avg_speed REAL,
+        max_speed REAL,
+        elevation_gain_m REAL,
         calories REAL,
+        kg_lifted REAL,
+        feel REAL,
+        perceived_exertion REAL,
+        session_rpe REAL,
+        ftp REAL,
+        lthr REAL,
+        trimp REAL,
+        hr_load REAL,
+        pace_load REAL,
+        power_load REAL,
+        source_updated_at TEXT,
         is_hard INTEGER DEFAULT 0,
         raw_json TEXT
     )
@@ -199,9 +236,17 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
 
 
 _WELLNESS_COLS = (
-    "date", "hrv", "rhr", "garmin_sleep_score", "sleep_duration_min",
-    "sleep_latency_min", "soreness", "fatigue", "motivation", "stress",
-    "weight_kg", "illness", "injury", "ctl", "atl", "ramp_rate", "raw_json",
+    "date", "hrv", "hrv_sdnn", "rhr", "avg_sleeping_hr",
+    "garmin_sleep_score", "sleep_quality_score",
+    "sleep_duration_min", "sleep_latency_min",
+    "respiration", "spo2",
+    "soreness", "fatigue", "motivation", "mood", "stress",
+    "weight_kg", "body_fat_pct", "waist_cm",
+    "bp_systolic", "bp_diastolic",
+    "vo2max", "steps", "garmin_readiness",
+    "illness", "injury",
+    "ctl", "atl", "ctl_load", "atl_load", "ramp_rate",
+    "comments", "source_updated_at", "raw_json",
 )
 
 
@@ -223,9 +268,14 @@ def upsert_wellness(conn: sqlite3.Connection, record: dict[str, Any]) -> None:
 
 
 _ACTIVITY_COLS = (
-    "id", "date", "sport", "type", "name", "duration_min", "elapsed_min",
-    "distance_m", "load", "intensity", "avg_hr", "max_hr", "avg_power",
-    "calories", "is_hard", "raw_json",
+    "id", "date", "sport", "type", "name", "description",
+    "duration_min", "elapsed_min", "distance_m", "load", "intensity",
+    "efficiency_factor", "variability_index", "decoupling", "polarization_index",
+    "avg_hr", "max_hr", "avg_power", "avg_cadence", "avg_speed", "max_speed",
+    "elevation_gain_m", "calories", "kg_lifted",
+    "feel", "perceived_exertion", "session_rpe",
+    "ftp", "lthr", "trimp", "hr_load", "pace_load", "power_load",
+    "source_updated_at", "is_hard", "raw_json",
 )
 
 

@@ -146,17 +146,25 @@ def init() -> None:
 
 
 @app.command()
-def sync(days: int = typer.Option(180, "--days", help="How many days back to fetch.")) -> None:
+def sync(
+    days: int = typer.Option(180, "--days", help="How many days back to fetch."),
+    force_details: bool = typer.Option(
+        False,
+        "--force-details",
+        help="Re-fetch activity intervals even if the raw JSON is already cached.",
+    ),
+) -> None:
     """Pull recent wellness + activities from Intervals.icu."""
     settings = load_settings()
     if not settings.intervals_api_key:
         console.print("[red]INTERVALS_API_KEY is not set in .env[/red]")
         raise typer.Exit(code=2)
     mapping = load_metric_mapping(settings.metric_mapping_path)
-    report = run_sync(settings, mapping, days=days)
+    report = run_sync(settings, mapping, days=days, force_details=force_details)
     console.print(
-        f"[green]synced[/green] wellness={report.wellness_count} activities={report.activity_count} "
-        f"detail={report.detail_count}"
+        f"[green]synced[/green] wellness={report.wellness_count} "
+        f"activities={report.activity_count} "
+        f"detail_new={report.detail_count} detail_cached={report.detail_cached}"
     )
     if report.unknown_wellness_fields:
         console.print(f"unknown wellness fields: {sorted(report.unknown_wellness_fields)}")
@@ -232,10 +240,12 @@ def _maybe_sync(settings, stale_hours: float = 6.0) -> None:
         except ValueError:
             needs_sync = True
     if needs_sync:
-        console.print("[dim]data stale; auto-syncing…[/dim]")
+        console.print("[dim]data stale; auto-syncing last 7 days…[/dim]")
         mapping = load_metric_mapping(settings.metric_mapping_path)
         try:
-            run_sync(settings, mapping, days=30)
+            # Short window for auto-sync; relies on the on-disk detail cache to
+            # avoid re-fetching activity intervals we already have.
+            run_sync(settings, mapping, days=7)
         except Exception as e:
             console.print(f"[yellow]auto-sync failed:[/yellow] {e}")
 

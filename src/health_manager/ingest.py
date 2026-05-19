@@ -39,6 +39,7 @@ class SyncReport:
     wellness_count: int = 0
     activity_count: int = 0
     detail_count: int = 0
+    detail_cached: int = 0
     unknown_wellness_fields: set[str] = field(default_factory=set)
     unknown_activity_fields: set[str] = field(default_factory=set)
 
@@ -49,8 +50,15 @@ def sync(
     days: int = 180,
     today: date | None = None,
     client: IntervalsClient | None = None,
+    force_details: bool = False,
 ) -> SyncReport:
-    """Fetch the last `days` of data into raw/ and SQLite. Idempotent."""
+    """Fetch the last `days` of data into raw/ and SQLite.
+
+    By default, activity detail (intervals) is only fetched for activities
+    that have *no* cached `data/raw/intervals/activity_details/<id>.json`.
+    Pass `force_details=True` to re-fetch every recent activity's intervals
+    (useful if Intervals.icu's analysis was re-run on an activity).
+    """
     today = today or date.today()
     oldest = today - timedelta(days=days)
 
@@ -109,30 +117,42 @@ def sync(
                 upsert_activity(conn, normalized)
                 report.activity_count += 1
 
-                # Pull intervals for recent activities only.
+                # Pull intervals for recent activities, but skip if we already have
+                # the detail cached on disk (unless force_details is set).
                 try:
                     dt = date.fromisoformat(date_str)
                 except ValueError:
                     dt = None
                 if dt and dt >= recent_threshold:
-                    try:
-                        detail = client.get_activity(str(normalized["id"]), include_intervals=True)
-                    except Exception as e:  # pragma: no cover - network failures
-                        log.warning("activity detail fetch failed for %s: %s", normalized["id"], e)
-                        continue
-                    _write_raw(
-                        settings.raw_dir / "intervals" / "activity_details",
-                        [detail],
-                        key_field="id",
-                    )
-                    intervals = detail.get("icu_intervals") or detail.get("intervals") or []
-                    normalized_intervals = [
-                        _normalize_interval(iv, mapping.interval) for iv in intervals
-                    ]
-                    replace_activity_intervals(
-                        conn, str(normalized["id"]), normalized_intervals
-                    )
-                    report.detail_count += 1
+                    detail_dir = settings.raw_dir / "intervals" / "activity_details"
+                    cached_path = detail_dir / f"{normalized['id']}.json"
+                    if cached_path.exists() and not force_details:
+                        report.detail_cached += 1
+                    else:
+                        try:
+                            detail = client.get_activity(
+                                str(normalized["id"]), include_intervals=True
+                            )
+                        except Exception as e:  # pragma: no cover - network failures
+                            log.warning(
+                                "activity detail fetch failed for %s: %s",
+                                normalized["id"],
+                                e,
+                            )
+                            continue
+                        _write_raw(detail_dir, [detail], key_field="id")
+                        intervals = (
+                            detail.get("icu_intervals")
+                            or detail.get("intervals")
+                            or []
+                        )
+                        normalized_intervals = [
+                            _normalize_interval(iv, mapping.interval) for iv in intervals
+                        ]
+                        replace_activity_intervals(
+                            conn, str(normalized["id"]), normalized_intervals
+                        )
+                        report.detail_count += 1
 
             # Pull in manual CSVs (no-op if files absent).
             import_manual_csv(conn, settings.manual_dir)
@@ -156,17 +176,30 @@ def sync(
 
 
 _KNOWN_WELLNESS = {
-    "date", "hrv", "rhr", "garmin_sleep_score", "sleep_duration_min",
-    "sleep_duration_sec", "sleep_latency_min", "soreness", "fatigue",
-    "motivation", "stress", "weight_kg", "illness", "injury", "ctl", "atl",
-    "ramp_rate", "sleep_quality", "raw_json",
+    "date", "hrv", "hrv_sdnn", "rhr", "avg_sleeping_hr",
+    "garmin_sleep_score", "sleep_quality_score",
+    "sleep_duration_min", "sleep_duration_sec", "sleep_latency_min",
+    "respiration", "spo2",
+    "soreness", "fatigue", "motivation", "mood", "stress",
+    "weight_kg", "body_fat_pct", "waist_cm",
+    "bp_systolic", "bp_diastolic",
+    "vo2max", "steps", "garmin_readiness",
+    "illness", "injury",
+    "ctl", "atl", "ctl_load", "atl_load", "ramp_rate",
+    "comments", "source_updated_at",
+    "raw_json",
 }
 
 _KNOWN_ACTIVITY = {
-    "id", "date", "date_utc", "sport", "type", "name", "duration_min",
-    "duration_sec", "elapsed_min", "elapsed_sec", "distance_m", "load",
-    "intensity", "avg_hr", "max_hr", "avg_power", "calories", "is_hard",
-    "raw_json",
+    "id", "date", "date_utc", "sport", "type", "name", "description",
+    "duration_min", "duration_sec", "elapsed_min", "elapsed_sec",
+    "distance_m", "load", "intensity",
+    "efficiency_factor", "variability_index", "decoupling", "polarization_index",
+    "avg_hr", "max_hr", "avg_power", "avg_cadence", "avg_speed", "max_speed",
+    "elevation_gain_m", "calories", "kg_lifted",
+    "feel", "perceived_exertion", "session_rpe",
+    "ftp", "lthr", "trimp", "hr_load", "pace_load", "power_load",
+    "source_updated_at", "is_hard", "raw_json",
 }
 
 
