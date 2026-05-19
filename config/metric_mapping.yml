@@ -1,0 +1,53 @@
+# Maps Intervals.icu wellness/activity field names to canonical names used internally.
+# Intervals.icu field names can change or vary by data source.
+# Unknown fields are logged (not crashed) and kept in raw_json.
+
+wellness:
+  hrv: hrv
+  restingHR: rhr
+  rhr: rhr
+  sleepScore: garmin_sleep_score
+  sleep_score: garmin_sleep_score
+  sleepSecs: sleep_duration_sec
+  sleepTime: sleep_duration_sec
+  sleepDurationSec: sleep_duration_sec
+  sleep_quality: sleep_quality
+  sleepLatency: sleep_latency_min
+  soreness: soreness
+  fatigue: fatigue
+  motivation: motivation
+  stress: stress
+  weight: weight_kg
+  illness: illness
+  injury: injury
+  ctl: ctl
+  atl: atl
+  rampRate: ramp_rate
+  date: date
+  id: date          # some endpoints return id == date string
+
+activity:
+  id: id
+  start_date_local: date
+  start_date: date_utc
+  type: sport
+  name: name
+  moving_time: duration_sec
+  elapsed_time: elapsed_sec
+  distance: distance_m
+  icu_training_load: load
+  training_load: load
+  trainingLoad: load
+  icu_intensity: intensity
+  intensity: intensity
+  average_heartrate: avg_hr
+  average_watts: avg_power
+  max_heartrate: max_hr
+  calories: calories
+
+interval:
+  type: type
+  duration: duration_s
+  average_heartrate: avg_hr
+  average_watts: avg_power
+  intensity: intensity

@@ -1,0 +1,8 @@
+[
+  {"id": "a1", "start_date_local": "2026-05-13T07:00:00", "type": "Run", "name": "Easy run",
+   "moving_time": 2700, "distance": 6000, "icu_training_load": 45, "icu_intensity": 65, "average_heartrate": 138},
+  {"id": "a2", "start_date_local": "2026-05-15T07:00:00", "type": "WeightTraining", "name": "Strength A",
+   "moving_time": 3000, "distance": 0, "icu_training_load": 50, "icu_intensity": 70, "average_heartrate": 120},
+  {"id": "a3", "start_date_local": "2026-05-17T06:30:00", "type": "Run", "name": "Threshold run",
+   "moving_time": 3600, "distance": 9000, "icu_training_load": 100, "icu_intensity": 92, "average_heartrate": 168}
+]

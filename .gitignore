@@ -1,0 +1,23 @@
+.env
+.venv/
+__pycache__/
+
+# Claude Code local settings (per-machine, not shared)
+.claude/settings.local.json
+
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Personal data — never commit
+data/raw/
+data/processed/
+data/reports/
+data/manual/*.csv
+!data/manual/.gitkeep
+private_photos/
+*.sqlite
+*.sqlite-journal

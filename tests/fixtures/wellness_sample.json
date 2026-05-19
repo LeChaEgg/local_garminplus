@@ -1,0 +1,9 @@
+[
+  {"id": "2026-05-13", "hrv": 62, "restingHR": 50, "sleepScore": 82, "sleepSecs": 27000, "soreness": 2, "motivation": 4},
+  {"id": "2026-05-14", "hrv": 65, "restingHR": 49, "sleepScore": 85, "sleepSecs": 28800, "soreness": 2, "motivation": 4},
+  {"id": "2026-05-15", "hrv": 60, "restingHR": 51, "sleepScore": 78, "sleepSecs": 25200, "soreness": 3, "motivation": 3},
+  {"id": "2026-05-16", "hrv": 58, "restingHR": 52, "sleepScore": 72, "sleepSecs": 23400, "soreness": 3, "motivation": 3},
+  {"id": "2026-05-17", "hrv": 63, "restingHR": 49, "sleepScore": 88, "sleepSecs": 29700, "soreness": 2, "motivation": 4},
+  {"id": "2026-05-18", "hrv": 64, "restingHR": 48, "sleepScore": 90, "sleepSecs": 30000, "soreness": 1, "motivation": 5},
+  {"id": "2026-05-19", "hrv": 67, "restingHR": 47, "sleepScore": 92, "sleepSecs": 28800, "soreness": 2, "motivation": 4}
+]

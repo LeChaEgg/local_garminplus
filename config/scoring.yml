@@ -1,0 +1,67 @@
+# Readiness scoring weights and thresholds.
+# All values are inspectable and may be edited by hand.
+
+sleep_recovery:
+  # Weights inside the sleep_recovery sub-score (must sum to 1.0).
+  weights:
+    sleep_duration: 0.30
+    garmin_sleep_score: 0.25
+    hrv_vs_baseline: 0.20
+    rhr_vs_baseline: 0.15
+    subjective: 0.10
+  # Sleep duration scoring: triangular around [min, ideal_low, ideal_high, max] hours.
+  sleep_duration_hours:
+    min: 4.0
+    ideal_low: 7.0
+    ideal_high: 8.5
+    max: 10.0
+  # HRV / RHR z-scores map linearly to 0..100 across these clamps.
+  hrv_z_clamp: [-1.5, 1.5]
+  rhr_z_clamp_inverted: [-1.5, 1.5]   # lower RHR is better
+  # Garmin sleep score is already 0..100; we just clamp.
+  garmin_sleep_score_clamp: [40, 100]
+
+load_balance:
+  weights:
+    acwr_fit: 0.35              # acute:chronic workload ratio in the sweet spot
+    days_since_hard: 0.25       # at least 48h since last hard session
+    consecutive_days: 0.20      # too many consecutive training days lowers
+    soreness: 0.20
+  acwr_ideal_range: [0.8, 1.3]
+  hard_session_target_gap_days: 2
+
+# Top-level combination
+readiness:
+  sleep_recovery_weight: 0.65
+  load_balance_weight: 0.35
+
+# Maps numeric score to bucket.
+levels:
+  green: 80
+  green_yellow: 65
+  yellow: 50
+  orange: 35
+  # below orange threshold -> red
+
+risk_penalties:
+  short_sleep_hours_below: 5.0      # subtract this penalty if last night < N hours
+  short_sleep_penalty: 15
+  illness_flag_penalty: 25          # if wellness 'illness' truthy
+  high_soreness_threshold: 4        # 1..5 scale
+  high_soreness_penalty: 10
+
+confidence:
+  # Inputs we want for high confidence. Each missing input drops a step.
+  required_inputs:
+    - hrv
+    - sleep_duration_min
+    - garmin_sleep_score
+    - rhr
+    - recent_activities
+  # Baseline window targets (we expect this many days of HRV/RHR history).
+  baseline_window_target_days: 28
+  baseline_window_floor_days: 7
+  levels:
+    high: 0.85
+    medium: 0.55
+    # below medium -> low

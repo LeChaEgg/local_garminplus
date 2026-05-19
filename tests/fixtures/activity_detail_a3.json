@@ -1,0 +1,15 @@
+{
+  "id": "a3",
+  "start_date_local": "2026-05-17T06:30:00",
+  "type": "Run",
+  "name": "Threshold run",
+  "moving_time": 3600,
+  "icu_training_load": 100,
+  "icu_intensity": 92,
+  "icu_intervals": [
+    {"type": "Warmup", "duration": 600, "average_heartrate": 130, "intensity": 60},
+    {"type": "Work", "duration": 480, "average_heartrate": 170, "intensity": 95},
+    {"type": "Work", "duration": 480, "average_heartrate": 172, "intensity": 96},
+    {"type": "Cooldown", "duration": 600, "average_heartrate": 125, "intensity": 55}
+  ]
+}
