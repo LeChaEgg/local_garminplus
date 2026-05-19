@@ -5,6 +5,13 @@ __pycache__/
 # Claude Code local settings (per-machine, not shared)
 .claude/settings.local.json
 
+# Editor swap files
+*.swp
+*.swo
+.*.swp
+.*.swo
+.DS_Store
+
 *.py[cod]
 *.egg-info/
 .pytest_cache/

@@ -8,7 +8,7 @@ Designed for a single user. All data stays on disk; nothing is sent to any exter
 
 ## Stack
 
-Python 3.12 · uv · Typer · httpx · pydantic · pandas · sqlite3 · Streamlit · pytest.
+Python 3.12 · uv · Typer · httpx · pydantic · pandas · sqlite3 · pytest. The dashboard is a self-contained static HTML file (no JS, no server) regenerated from SQLite + reports on each run.
 
 ## Setup
 
@@ -31,7 +31,7 @@ uv run health dashboard
 | `health today` | Sync (if stale), compute readiness, pick today's workout, write `data/reports/daily/YYYY-MM-DD.{md,json}`, print summary. |
 | `health report weekly` | Write the current ISO-week report. |
 | `health report monthly` | Write the current calendar-month report. |
-| `health dashboard` | Launch the Streamlit dashboard locally. |
+| `health dashboard` | Regenerate `data/reports/dashboard.html` from the latest data and open it in your default browser (`--no-open` to skip the auto-open). |
 
 ## Layout
 

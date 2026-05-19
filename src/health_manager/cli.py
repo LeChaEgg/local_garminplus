@@ -309,12 +309,35 @@ def report_monthly(
 
 
 @app.command()
-def dashboard(port: int = typer.Option(8501, "--port")) -> None:
-    """Launch the Streamlit dashboard."""
-    target = _here() / "dashboard.py"
-    cmd = [sys.executable, "-m", "streamlit", "run", str(target), "--server.port", str(port)]
-    console.print(f"[dim]running:[/dim] {' '.join(cmd)}")
-    subprocess.run(cmd, check=False)
+def dashboard(
+    no_open: bool = typer.Option(
+        False, "--no-open", help="Write the HTML but don't auto-open the browser."
+    ),
+) -> None:
+    """Regenerate the static HTML dashboard and open it in the default browser."""
+    from .dashboard import build_and_write_dashboard
+
+    settings = load_settings()
+    out = build_and_write_dashboard(settings)
+    console.print(f"[green]wrote[/green] {out}")
+    if no_open:
+        return
+    _open_in_browser(out)
+
+
+def _open_in_browser(path: Path) -> None:
+    """Open a local file in the default browser, cross-platform."""
+    import webbrowser
+
+    url = path.resolve().as_uri()
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+    elif sys.platform.startswith("linux"):
+        subprocess.run(["xdg-open", str(path)], check=False)
+    elif sys.platform == "win32":
+        subprocess.run(["cmd", "/c", "start", "", str(path)], check=False, shell=False)
+    else:
+        webbrowser.open(url)
 
 
 if __name__ == "__main__":   # pragma: no cover
