@@ -372,6 +372,34 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .coverage-fill.partial { background: var(--yellow); }
 .coverage-fill.low { background: var(--red); }
 
+/* ---- UI polish additions ---- */
+.subscore .bar {
+  margin-top: 6px; height: 6px; background: var(--bg);
+}
+.subscore .bar-fill { background: var(--accent); }
+.trend .row { display: flex; align-items: baseline; gap: 8px; }
+.trend .arrow {
+  font-size: 16px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.trend .arrow.up   { color: var(--green); }
+.trend .arrow.down { color: var(--red); }
+.trend .arrow.flat { color: var(--muted); }
+.wk-card.recommended {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
+  position: relative;
+}
+.wk-card.recommended::before {
+  content: "Today's pick";
+  position: absolute;
+  top: -8px; right: 10px;
+  background: var(--green); color: #fff;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 2px 8px; border-radius: 999px;
+}
+.bar-val.over { color: var(--orange); font-weight: 600; }
+
 /* ---- Goals tables ---- */
 .goals-grid {
   display: grid;
@@ -489,6 +517,11 @@ def _build_html(
         .strftime("%Y-%m-%d %H:%M %Z")
     )
 
+    recommended_id: str | None = None
+    if daily_payload:
+        main = (daily_payload.get("recommendation") or {}).get("main") or {}
+        recommended_id = main.get("workout_id")
+
     body_html = "\n".join(
         [
             _section_today(daily_payload),
@@ -496,7 +529,7 @@ def _build_html(
             _section_weekly(weekly_payload),
             _section_monthly(monthly_payload),
             _section_goals(goals),
-            _section_workouts(workouts),
+            _section_workouts(workouts, recommended_id=recommended_id),
             _section_data_quality(wellness, activities, body, recs),
         ]
     )
@@ -576,6 +609,7 @@ def _section_today(p: dict[str, Any] | None) -> str:
         )
     alt_html = f'<div class="alt-row">{"".join(alt_parts)}</div>' if alt_parts else ""
 
+    conf_pct = min(100.0, max(0.0, float(conf["score"]) * 100))
     subscores_html = (
         '<div class="subscores">'
         f'<div class="subscore"><div class="label">Sleep &amp; Recovery</div>'
@@ -584,7 +618,8 @@ def _section_today(p: dict[str, Any] | None) -> str:
         f'<div class="value">{r["load_balance_score"]:.0f}</div></div>'
         f'<div class="subscore"><div class="label">Confidence</div>'
         f'<div class="value">{html.escape(conf["level"])}</div>'
-        f'<div class="sub">{conf["score"]:.2f}</div></div>'
+        f'<div class="bar" style="margin-top:6px;">'
+        f'<div class="bar-fill" style="width:{conf_pct:.0f}%"></div></div></div>'
         + (
             f'<div class="subscore"><div class="label">Risk penalty</div>'
             f'<div class="value">-{r["risk_penalty"]:.0f}</div></div>'
@@ -694,7 +729,12 @@ def _section_trends(wellness: pd.DataFrame, activities: pd.DataFrame) -> str:
 
 def _trend_card(label: str, values: list[float], lower_is_better: bool) -> str:
     latest = values[-1]
+    spread = (max(values) - min(values)) or 1.0
+
     delta_html = ""
+    arrow_html = ""
+    metric_direction: str = "neutral"   # 'good' | 'bad' | 'neutral'
+
     if len(values) >= 14:
         baseline_window = values[-29:-1] if len(values) > 28 else values[:-1]
         if baseline_window:
@@ -703,18 +743,43 @@ def _trend_card(label: str, values: list[float], lower_is_better: bool) -> str:
             sign = "+" if delta >= 0 else ""
             good = (delta < 0) if lower_is_better else (delta > 0)
             color = "var(--green)" if good else "var(--red)"
-            if abs(delta) < 0.2 * (max(values) - min(values) + 0.001):
+            if abs(delta) < 0.2 * spread:
                 color = "var(--muted)"
+                metric_direction = "neutral"
+            else:
+                metric_direction = "good" if good else "bad"
             delta_html = (
                 f'<div class="delta" style="color:{color}">'
                 f"{sign}{delta:.1f} vs 28d mean {mean:.1f}</div>"
             )
-    spark = _sparkline_svg(values)
+
+    # 7-day vs 28-day arrow.
+    if len(values) >= 14:
+        recent_n = min(7, len(values))
+        baseline_n = min(28, max(7, len(values) - recent_n))
+        recent = values[-recent_n:]
+        prior = values[-(recent_n + baseline_n) : -recent_n] if len(values) > recent_n else []
+        if prior:
+            r_mean = sum(recent) / len(recent)
+            p_mean = sum(prior) / len(prior)
+            shift = r_mean - p_mean
+            if abs(shift) < 0.1 * spread:
+                arrow_html = '<span class="arrow flat" title="flat vs 28d">→</span>'
+            else:
+                going_good = (shift < 0) if lower_is_better else (shift > 0)
+                cls = "up" if going_good else "down"
+                glyph = "↗" if shift > 0 else "↘"
+                arrow_html = (
+                    f'<span class="arrow {cls}" '
+                    f'title="7d mean {r_mean:.1f} vs 28d mean {p_mean:.1f}">{glyph}</span>'
+                )
+
+    spark = _sparkline_svg(values, direction=metric_direction)
     lo, hi = min(values), max(values)
     return (
         '<div class="trend">'
         f'<div class="label">{html.escape(label)}</div>'
-        f'<div class="latest">{latest:.1f}</div>'
+        f'<div class="row"><div class="latest">{latest:.1f}</div>{arrow_html}</div>'
         f"{delta_html}"
         f"{spark}"
         f'<div class="range">range {lo:.1f} – {hi:.1f}</div>'
@@ -722,9 +787,25 @@ def _trend_card(label: str, values: list[float], lower_is_better: bool) -> str:
     )
 
 
-def _sparkline_svg(values: list[float], width: int = 320, height: int = 60) -> str:
+def _sparkline_svg(
+    values: list[float],
+    width: int = 320,
+    height: int = 60,
+    direction: str = "neutral",
+) -> str:
+    """Render a sparkline as inline SVG.
+
+    `direction` tints the line and the area fill:
+      - "good"    → green (the metric is trending the right way)
+      - "bad"     → red   (trending the wrong way)
+      - "neutral" → accent blue (default)
+    """
     if len(values) < 2:
         return ""
+    color = {
+        "good": "var(--green)",
+        "bad": "var(--red)",
+    }.get(direction, "var(--accent)")
     lo, hi = min(values), max(values)
     span = hi - lo if hi > lo else 1.0
     n = len(values)
@@ -734,7 +815,6 @@ def _sparkline_svg(values: list[float], width: int = 320, height: int = 60) -> s
         y = height - 4 - ((v - lo) / span) * (height - 10)
         pts.append((x, y))
     poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    # Build an area path under the line.
     first_x, _ = pts[0]
     last_x, _ = pts[-1]
     area_path = (
@@ -746,10 +826,10 @@ def _sparkline_svg(values: list[float], width: int = 320, height: int = 60) -> s
     return (
         f'<svg class="spark" viewBox="0 0 {width} {height}" preserveAspectRatio="none" '
         f'xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
-        f'<path d="{area_path}" fill="var(--accent)" opacity="0.14"/>'
-        f'<polyline points="{poly}" fill="none" stroke="var(--accent)" '
+        f'<path d="{area_path}" fill="{color}" opacity="0.14"/>'
+        f'<polyline points="{poly}" fill="none" stroke="{color}" '
         f'stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>'
-        f'<circle cx="{last_x_s}" cy="{last_y_s}" r="2.6" fill="var(--accent)"/>'
+        f'<circle cx="{last_x_s}" cy="{last_y_s}" r="2.6" fill="{color}"/>'
         "</svg>"
     )
 
@@ -825,11 +905,13 @@ def _section_weekly(p: dict[str, Any] | None) -> str:
             color = _bar_color_for_min(actual, target)
         else:
             color = _bar_color_for_min(actual, target)
+        over_cls = " over" if pct > 100 else ""
+        suffix = f" ({pct:.0f}%)" if pct > 100 else ""
         bar_html_parts.append(
             '<div class="bar-row">'
             f"<span>{html.escape(label)}</span>"
             f"{_bar(min(pct, 100), color)}"
-            f'<span class="bar-val">{html.escape(val_text)}</span>'
+            f'<span class="bar-val{over_cls}">{html.escape(val_text)}{suffix}</span>'
             "</div>"
         )
     goals_html = (
@@ -1032,7 +1114,9 @@ def _fmt_v(v: Any) -> str:
 # ---------- section: workouts ----------
 
 
-def _section_workouts(workouts: list[Workout]) -> str:
+def _section_workouts(
+    workouts: list[Workout], recommended_id: str | None = None
+) -> str:
     if not workouts:
         return _wrap_section(
             "Workout library",
@@ -1057,8 +1141,9 @@ def _section_workouts(workouts: list[Workout]) -> str:
             tags_html = "".join(
                 f'<span class="chip">{html.escape(t)}</span>' for t in w.meta.tags
             )
+            extra_cls = " recommended" if w.id == recommended_id else ""
             cards.append(
-                '<div class="wk-card">'
+                f'<div class="wk-card{extra_cls}">'
                 '<div class="top">'
                 f'<div class="glyph">{_sport_glyph(sport)}</div>'
                 f'<div><div class="name">{html.escape(w.meta.name)}</div>'
