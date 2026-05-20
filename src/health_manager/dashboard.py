@@ -2,7 +2,7 @@
 
 Produces a single self-contained `data/reports/dashboard.html` file from the
 latest SQLite + reports/* state. No JavaScript, no external assets, no server
-— just hand-written HTML/CSS and a few inline SVG sparklines. The `health
+— just hand-written HTML/CSS, inline SVG, and Unicode glyphs. The `health
 dashboard` CLI command calls `build_and_write_dashboard(...)` and then opens
 the file in the default browser.
 """
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import html
 import json
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -58,65 +57,418 @@ def build_and_write_dashboard(settings: Settings) -> Path:
     return out
 
 
-# ---------- top-level HTML ----------
-
+# ---------- CSS ----------
 
 _CSS = """
+:root {
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --card-2: #f1f5f9;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --accent-2: #1d4ed8;
+  --green: #16a34a;
+  --green-soft: rgba(22,163,74,.14);
+  --green_yellow: #65a30d;
+  --green_yellow-soft: rgba(101,163,13,.14);
+  --yellow: #ca8a04;
+  --yellow-soft: rgba(202,138,4,.16);
+  --orange: #ea580c;
+  --orange-soft: rgba(234,88,12,.16);
+  --red: #dc2626;
+  --red-soft: rgba(220,38,38,.16);
+  --shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 12px rgba(15,23,42,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --card: #131c2e;
+    --card-2: #1b2742;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --border: #243049;
+    --accent: #60a5fa;
+    --accent-2: #93c5fd;
+    --green: #4ade80;
+    --green-soft: rgba(74,222,128,.18);
+    --green_yellow: #a3e635;
+    --green_yellow-soft: rgba(163,230,53,.18);
+    --yellow: #facc15;
+    --yellow-soft: rgba(250,204,21,.18);
+    --orange: #fb923c;
+    --orange-soft: rgba(251,146,60,.20);
+    --red: #f87171;
+    --red-soft: rgba(248,113,113,.20);
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+  }
+}
 * { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
-               Arial, sans-serif;
-  margin: 0;
-  background: #fafafa;
-  color: #1f1f1f;
-  line-height: 1.45;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text",
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
-header {
-  background: #1f2933;
-  color: #f5f7fa;
-  padding: 18px 28px;
+header.app {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: #ffffff;
+  padding: 22px 28px;
 }
-header h1 { margin: 0; font-size: 22px; }
-header .meta { font-size: 12px; color: #cbd2d9; margin-top: 4px; }
-main { max-width: 1100px; margin: 0 auto; padding: 24px; }
-section { background: #fff; border: 1px solid #e4e7eb; border-radius: 8px;
-          padding: 18px 22px; margin-bottom: 20px; }
-section h2 { margin-top: 0; font-size: 17px; border-bottom: 1px solid #eef0f3;
-             padding-bottom: 6px; }
-section h3 { font-size: 14px; color: #52606d; margin-top: 18px; margin-bottom: 6px;
-             text-transform: uppercase; letter-spacing: 0.5px; }
-.kv { display: grid; grid-template-columns: 220px 1fr; row-gap: 4px; column-gap: 12px;
-      font-size: 14px; }
-.kv .k { color: #52606d; }
-.metric-row { display: flex; gap: 24px; flex-wrap: wrap; margin: 12px 0; }
-.metric { background: #f5f7fa; border-radius: 6px; padding: 10px 16px; min-width: 140px; }
-.metric .label { font-size: 11px; color: #52606d; text-transform: uppercase;
-                 letter-spacing: 0.5px; }
-.metric .value { font-size: 22px; font-weight: 600; margin-top: 2px; }
-.metric .sub { font-size: 12px; color: #7b8794; margin-top: 2px; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
-th, td { border-bottom: 1px solid #eef0f3; padding: 6px 8px; text-align: left; }
-th { background: #f5f7fa; font-weight: 600; color: #52606d; font-size: 12px; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.level-green       { color: #0a7d3b; font-weight: 600; }
-.level-green_yellow{ color: #6c8500; font-weight: 600; }
-.level-yellow      { color: #b07d00; font-weight: 600; }
-.level-orange      { color: #c25300; font-weight: 600; }
-.level-red         { color: #b3261e; font-weight: 600; }
-.tag { display: inline-block; background: #f0f4f8; color: #334e68;
-       border-radius: 4px; padding: 2px 6px; font-size: 11px; margin-right: 3px; }
-.warn { background: #fff7e6; border-left: 3px solid #d9a300; padding: 6px 10px;
-        margin: 6px 0; font-size: 13px; }
-.muted { color: #7b8794; font-style: italic; }
-pre { background: #f5f7fa; padding: 10px; border-radius: 4px; font-size: 12px;
-      overflow-x: auto; }
-.spark { vertical-align: middle; }
-.spark-row { display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: 13px; }
-.spark-row .label { width: 80px; color: #52606d; font-size: 12px; }
-.spark-row .value { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 70px; }
-.spark-row .sub { color: #7b8794; font-size: 12px; }
-footer { text-align: center; color: #7b8794; font-size: 11px; padding: 18px; }
+header.app h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.2px; }
+header.app .meta { font-size: 12px; opacity: 0.92; margin-top: 4px; }
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 960px) {
+  main { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .span-2 { grid-column: 1 / -1; }
+}
+section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px 24px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+section h2 {
+  margin: 0 0 14px 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+section h2 .accent-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+}
+section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 18px 0 8px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+/* ---- Today section ---- */
+.today-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 24px;
+  align-items: center;
+}
+@media (max-width: 720px) { .today-grid { grid-template-columns: 1fr; justify-items: center; } }
+.donut {
+  --score: 0;
+  --color: var(--green);
+  position: relative;
+  width: 200px; height: 200px;
+  border-radius: 50%;
+  background: conic-gradient(var(--color) calc(var(--score) * 1%), var(--border) 0);
+  display: flex; align-items: center; justify-content: center;
+}
+.donut::after {
+  content: "";
+  position: absolute; inset: 14px;
+  background: var(--card);
+  border-radius: 50%;
+}
+.donut .inner {
+  position: relative; z-index: 1;
+  text-align: center;
+}
+.donut .score { font-size: 44px; font-weight: 700; line-height: 1; letter-spacing: -1px; }
+.donut .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px;
+                color: var(--color); font-weight: 700; margin-top: 4px; }
+.hero-card {
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  display: flex; gap: 14px; align-items: center;
+  min-width: 0;
+}
+.hero-card .glyph { font-size: 44px; line-height: 1; flex: 0 0 auto; }
+.hero-card .body { min-width: 0; flex: 1; }
+.hero-card .name { font-size: 18px; font-weight: 700; }
+.hero-card .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.hero-card .id { display: inline-block; background: var(--bg); border-radius: 6px;
+                 padding: 2px 8px; font-size: 11px; margin-top: 6px;
+                 font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                 color: var(--muted); }
+.no-rec { color: var(--muted); font-style: italic; }
+.alt-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.alt {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 10px; font-size: 12px;
+}
+.alt .kind { color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px;
+             font-size: 10px; font-weight: 700; }
+.subscores {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px;
+}
+.subscore {
+  background: var(--card-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 14px; min-width: 110px;
+}
+.subscore .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+                   color: var(--muted); font-weight: 700; }
+.subscore .value { font-size: 18px; font-weight: 700; margin-top: 2px;
+                   font-variant-numeric: tabular-nums; }
+.subscore .sub { font-size: 11px; color: var(--muted); margin-top: 0; }
+.alerts { margin-top: 12px; }
+.alert {
+  display: flex; align-items: flex-start; gap: 8px;
+  border-left: 3px solid var(--orange);
+  background: var(--orange-soft);
+  color: var(--text);
+  padding: 8px 12px; border-radius: 6px;
+  margin: 6px 0; font-size: 13px;
+}
+.alert .icon { font-size: 16px; line-height: 1.2; }
+.alert.red { border-color: var(--red); background: var(--red-soft); }
+.alert.yellow { border-color: var(--yellow); background: var(--yellow-soft); }
+.reasons {
+  margin-top: 8px;
+  columns: 2;
+  column-gap: 22px;
+  font-size: 13px;
+  list-style: none;
+  padding: 0;
+}
+@media (max-width: 760px) { .reasons { columns: 1; } }
+.reasons li { break-inside: avoid; margin: 3px 0; padding-left: 14px; position: relative; }
+.reasons li::before {
+  content: "›"; color: var(--muted); position: absolute; left: 0; font-weight: 700;
+}
+details.not-rec { margin-top: 12px; }
+details.not-rec > summary {
+  cursor: pointer; font-size: 13px; color: var(--muted);
+  padding: 4px 0; list-style: none;
+}
+details.not-rec > summary::-webkit-details-marker { display: none; }
+details.not-rec > summary::before {
+  content: "▸ "; color: var(--muted);
+}
+details.not-rec[open] > summary::before { content: "▾ "; }
+.not-rec table { margin-top: 6px; }
+
+/* ---- Tables ---- */
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td {
+  text-align: left; padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th { background: var(--card-2); color: var(--muted); font-size: 11px;
+     text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- Pills & chips ---- */
+.chip {
+  display: inline-block; background: var(--card-2);
+  color: var(--text); border: 1px solid var(--border);
+  border-radius: 999px; padding: 2px 8px; font-size: 11px; margin: 1px 2px 1px 0;
+}
+.chip.accent { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, var(--border)); }
+
+/* ---- Level helpers ---- */
+.lvl-green { color: var(--green); }
+.lvl-green_yellow { color: var(--green_yellow); }
+.lvl-yellow { color: var(--yellow); }
+.lvl-orange { color: var(--orange); }
+.lvl-red { color: var(--red); }
+
+/* ---- Trends ---- */
+.trends-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.trend {
+  background: var(--card-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+}
+.trend .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+                color: var(--muted); font-weight: 700; }
+.trend .latest { font-size: 22px; font-weight: 700; margin-top: 2px;
+                 font-variant-numeric: tabular-nums; }
+.trend .delta { font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.trend .range { font-size: 11px; color: var(--muted); margin-top: 6px;
+                font-variant-numeric: tabular-nums; }
+.spark { display: block; margin-top: 6px; width: 100%; height: auto; }
+
+/* ---- Bars (weekly goals, sport minutes) ---- */
+.bar-row {
+  display: grid; grid-template-columns: 160px 1fr 90px;
+  gap: 10px; align-items: center;
+  margin: 5px 0; font-size: 13px;
+}
+.bar { background: var(--card-2); border-radius: 999px; height: 10px; overflow: hidden;
+       border: 1px solid var(--border); position: relative; }
+.bar-fill { height: 100%; border-radius: 999px;
+            background: var(--accent); transition: width .2s ease; }
+.bar-fill.green { background: var(--green); }
+.bar-fill.green_yellow { background: var(--green_yellow); }
+.bar-fill.yellow { background: var(--yellow); }
+.bar-fill.red { background: var(--red); }
+.bar-fill.blue { background: var(--accent); }
+.bar-val { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---- Workout library cards ---- */
+.wk-group { margin-top: 10px; }
+.wk-group .gh {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 700; color: var(--text);
+  margin: 14px 0 8px 0;
+}
+.wk-group .gh .count { color: var(--muted); font-size: 12px; font-weight: 500; }
+.wk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.wk-card {
+  background: var(--card-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+}
+.wk-card .top { display: flex; gap: 10px; align-items: center; }
+.wk-card .glyph { font-size: 24px; }
+.wk-card .name { font-weight: 700; font-size: 14px; }
+.wk-card .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.wk-card .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px;
+                  font-size: 11px; color: var(--muted); }
+.wk-card .stats .label { text-transform: uppercase; letter-spacing: 0.4px;
+                         margin-right: 4px; }
+.dots { font-family: ui-monospace, SFMono-Regular, monospace; letter-spacing: 1px; }
+.dots .on { color: var(--accent); }
+.dots .off { color: var(--border); }
+.wk-card .tags { margin-top: 8px; }
+
+/* ---- Data quality ---- */
+.coverage-bar { background: var(--card-2); border-radius: 6px; height: 6px;
+                 border: 1px solid var(--border); overflow: hidden;
+                 width: 120px; display: inline-block; vertical-align: middle; }
+.coverage-fill { height: 100%; background: var(--green); }
+.coverage-fill.partial { background: var(--yellow); }
+.coverage-fill.low { background: var(--red); }
+
+/* ---- Goals tables ---- */
+.goals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.goal-card {
+  background: var(--card-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+}
+.goal-card h4 {
+  margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--muted); font-weight: 700;
+}
+.goal-card .kv {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px;
+  font-size: 13px;
+}
+.goal-card .kv .k { color: var(--muted); }
+.goal-card .kv .v { text-align: right; font-variant-numeric: tabular-nums; }
+.goal-card .narrative {
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+  font-size: 13px; color: var(--text);
+}
+.goal-card .narrative p { margin: 4px 0; }
+
+footer.app {
+  max-width: 1200px; margin: 0 auto; padding: 18px 28px 32px;
+  color: var(--muted); font-size: 11px; text-align: center;
+}
 """
+
+
+# ---------- glyphs & visual helpers ----------
+
+
+_SPORT_GLYPHS = {
+    "run": "🏃",
+    "bike": "🚴",
+    "ride": "🚴",
+    "strength": "🏋️",
+    "weighttraining": "🏋️",
+    "recovery": "🧘",
+    "walk": "🚶",
+    "swim": "🏊",
+    "hike": "🥾",
+    "ebikeride": "🚴",
+    "virtualride": "🚴",
+    "virtualrun": "🏃",
+    "rockclimbing": "🧗",
+}
+
+
+def _sport_glyph(sport: str | None) -> str:
+    if not sport:
+        return "●"
+    return _SPORT_GLYPHS.get(sport.strip().lower(), "●")
+
+
+def _dots(filled: int, total: int = 5) -> str:
+    filled = max(0, min(total, int(filled)))
+    on = "●" * filled
+    off = "○" * (total - filled)
+    return f'<span class="dots"><span class="on">{on}</span><span class="off">{off}</span></span>'
+
+
+def _bar(pct: float, color_class: str = "blue") -> str:
+    pct = max(0.0, min(100.0, pct))
+    return (
+        f'<div class="bar"><div class="bar-fill {color_class}" '
+        f'style="width:{pct:.0f}%"></div></div>'
+    )
+
+
+def _bar_color_for_min(actual: float, target: float) -> str:
+    """For 'meet at least' goals."""
+    if target <= 0:
+        return "blue"
+    pct = (actual / target) * 100
+    if pct >= 85:
+        return "green"
+    if pct >= 50:
+        return "yellow"
+    return "red"
+
+
+def _bar_color_for_cap(actual: float, cap: float) -> str:
+    """For 'stay below cap' goals (e.g. hard sessions)."""
+    if cap <= 0:
+        return "blue"
+    pct = (actual / cap) * 100
+    if pct <= 100:
+        return "green"
+    return "red"
+
+
+# ---------- top-level HTML ----------
 
 
 def _build_html(
@@ -137,33 +489,35 @@ def _build_html(
         .strftime("%Y-%m-%d %H:%M %Z")
     )
 
-    sections = [
-        _section_today(daily_payload),
-        _section_trends(wellness, activities),
-        _section_weekly(weekly_payload),
-        _section_monthly(monthly_payload),
-        _section_goals(goals),
-        _section_workouts(workouts),
-        _section_data_quality(wellness, activities, body, recs),
-    ]
+    body_html = "\n".join(
+        [
+            _section_today(daily_payload),
+            _section_trends(wellness, activities),
+            _section_weekly(weekly_payload),
+            _section_monthly(monthly_payload),
+            _section_goals(goals),
+            _section_workouts(workouts),
+            _section_data_quality(wellness, activities, body, recs),
+        ]
+    )
 
     return (
         "<!doctype html>\n"
-        "<html lang=\"en\"><head>\n"
+        '<html lang="en"><head>\n'
         '<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>Health Manager — {html.escape(generated_at)}</title>\n"
         f"<style>{_CSS}</style>\n"
         "</head><body>\n"
-        '<header>\n'
-        '  <h1>Health Manager</h1>\n'
+        '<header class="app">\n'
+        "  <h1>Health Manager</h1>\n"
         f'  <div class="meta">Local dashboard · generated {html.escape(generated_at)} · '
-        f'data stays on this machine</div>\n'
+        f"data stays on this machine</div>\n"
         "</header>\n"
         "<main>\n"
-        + "\n".join(sections)
-        + "\n</main>\n"
-        '<footer>health-manager · open this file directly in your browser at any time</footer>\n'
+        f"{body_html}\n"
+        "</main>\n"
+        '<footer class="app">health-manager · open this file directly in your browser at any time</footer>\n'
         "</body></html>\n"
     )
 
@@ -176,71 +530,116 @@ def _section_today(p: dict[str, Any] | None) -> str:
         return _wrap_section(
             "Today",
             '<p class="muted">No daily report yet. Run <code>health today</code>.</p>',
+            classes=["span-2"],
         )
     r = p["readiness"]
     rec = p["recommendation"]
     conf = p["confidence"]
-    level_cls = f"level-{r['level']}"
+    level = r["level"]
+    score = float(r["score"])
 
     main = rec.get("main")
+    if main:
+        glyph = _sport_glyph(main.get("sport"))
+        rec_html = (
+            '<div class="hero-card">'
+            f'<div class="glyph">{glyph}</div>'
+            f'<div class="body">'
+            f'<div class="name">{html.escape(main["name"])}</div>'
+            f'<div class="sub">{html.escape(main["sport"])} · '
+            f'{html.escape(main["category"])} · {main["duration_min"]} min</div>'
+            f'<div class="id">{html.escape(main["workout_id"])}</div>'
+            f"</div></div>"
+        )
+    else:
+        rec_html = (
+            '<div class="hero-card"><div class="glyph">●</div>'
+            '<div class="body"><div class="name">No workout passed all filters</div>'
+            '<div class="sub">Loosen guardrails or add lower-intensity options to your library.</div>'
+            "</div></div>"
+        )
+
     cons = rec.get("conservative")
     prog = rec.get("progressive")
+    alt_parts: list[str] = []
+    if cons:
+        alt_parts.append(
+            f'<span class="alt"><span class="kind">Conservative</span>'
+            f'{_sport_glyph(cons.get("sport"))} {html.escape(cons["name"])} · '
+            f'{cons["duration_min"]} min</span>'
+        )
+    if prog:
+        alt_parts.append(
+            f'<span class="alt"><span class="kind">Progressive</span>'
+            f'{_sport_glyph(prog.get("sport"))} {html.escape(prog["name"])} · '
+            f'{prog["duration_min"]} min</span>'
+        )
+    alt_html = f'<div class="alt-row">{"".join(alt_parts)}</div>' if alt_parts else ""
 
-    main_html = (
-        f"<strong>{html.escape(main['name'])}</strong> "
-        f"({html.escape(main['sport'])}, {main['duration_min']} min) "
-        f"<span class='muted'>{html.escape(main['workout_id'])}</span>"
-        if main
-        else "<span class='muted'>(no workout passed filters)</span>"
+    subscores_html = (
+        '<div class="subscores">'
+        f'<div class="subscore"><div class="label">Sleep &amp; Recovery</div>'
+        f'<div class="value">{r["sleep_recovery_score"]:.0f}</div></div>'
+        f'<div class="subscore"><div class="label">Load Balance</div>'
+        f'<div class="value">{r["load_balance_score"]:.0f}</div></div>'
+        f'<div class="subscore"><div class="label">Confidence</div>'
+        f'<div class="value">{html.escape(conf["level"])}</div>'
+        f'<div class="sub">{conf["score"]:.2f}</div></div>'
+        + (
+            f'<div class="subscore"><div class="label">Risk penalty</div>'
+            f'<div class="value">-{r["risk_penalty"]:.0f}</div></div>'
+            if r.get("risk_penalty")
+            else ""
+        )
+        + "</div>"
     )
 
     risk_html = ""
     if r.get("risk_flags"):
-        risk_html = "".join(
-            f"<div class='warn'>⚠ {html.escape(f)}</div>" for f in r["risk_flags"]
+        risk_html = '<div class="alerts">' + "".join(
+            f'<div class="alert"><span class="icon">⚠</span>'
+            f"<span>{html.escape(f)}</span></div>"
+            for f in r["risk_flags"]
+        ) + "</div>"
+
+    reasons_html = ""
+    if r.get("reasons"):
+        items = "".join(
+            f"<li>{html.escape(reason)}</li>" for reason in r["reasons"]
+        )
+        reasons_html = f'<h3>Why</h3><ul class="reasons">{items}</ul>'
+
+    nr = rec.get("not_recommended", []) or []
+    not_rec_html = ""
+    if nr:
+        rows = "".join(
+            f'<tr><td>{_sport_glyph(item["sport"])} {html.escape(item["name"])}</td>'
+            f"<td>{html.escape('; '.join(item['reasons']))}</td></tr>"
+            for item in nr
+        )
+        not_rec_html = (
+            f'<details class="not-rec"><summary>{len(nr)} workout(s) filtered out</summary>'
+            '<table><thead><tr><th>Workout</th><th>Reasons</th></tr></thead>'
+            f"<tbody>{rows}</tbody></table>"
+            "</details>"
         )
 
-    reasons_html = "".join(
-        f"<li>{html.escape(reason)}</li>" for reason in r.get("reasons", [])
+    body_html = (
+        '<div class="today-grid">'
+        f'<div class="donut" style="--score:{score:.0f}; --color: var(--{level});">'
+        f'<div class="inner"><div class="score">{score:.0f}</div>'
+        f'<div class="label" style="color: var(--{level});">'
+        f"{html.escape(level.replace('_', '/'))}</div></div></div>"
+        f"<div>{rec_html}{alt_html}</div>"
+        "</div>"
+        f"{subscores_html}{risk_html}{reasons_html}{not_rec_html}"
     )
-
-    nr_rows = "".join(
-        f"<tr><td>{html.escape(item['name'])}</td>"
-        f"<td>{html.escape(item['sport'])}</td>"
-        f"<td>{html.escape('; '.join(item['reasons']))}</td></tr>"
-        for item in rec.get("not_recommended", [])
+    return _wrap_section(
+        f'Today · <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0;">{html.escape(p["date"])}</span>',
+        body_html,
+        classes=["span-2"],
+        accent_var=level,
     )
-    nr_html = (
-        '<h3>Not recommended today</h3>'
-        '<table><thead><tr><th>Workout</th><th>Sport</th><th>Reasons</th></tr></thead>'
-        f"<tbody>{nr_rows}</tbody></table>"
-        if nr_rows
-        else ""
-    )
-
-    body_html = f"""
-<div class="metric-row">
-  <div class="metric"><div class="label">Readiness</div>
-    <div class="value {level_cls}">{r['score']:.0f}</div>
-    <div class="sub {level_cls}">{html.escape(r['level'])}</div></div>
-  <div class="metric"><div class="label">Sleep &amp; Recovery</div>
-    <div class="value">{r['sleep_recovery_score']:.0f}</div></div>
-  <div class="metric"><div class="label">Load Balance</div>
-    <div class="value">{r['load_balance_score']:.0f}</div></div>
-  <div class="metric"><div class="label">Confidence</div>
-    <div class="value">{html.escape(conf['level'])}</div>
-    <div class="sub">{conf['score']:.2f}</div></div>
-</div>
-<h3>Recommendation for {html.escape(p['date'])}</h3>
-<div>Main: {main_html}</div>
-{f"<div class='muted'>Conservative: {html.escape(cons['name'])} ({cons['duration_min']} min)</div>" if cons else ""}
-{f"<div class='muted'>Progressive: {html.escape(prog['name'])} ({prog['duration_min']} min)</div>" if prog else ""}
-{risk_html}
-<h3>Reasons</h3>
-<ul>{reasons_html}</ul>
-{nr_html}
-"""
-    return _wrap_section("Today", body_html)
 
 
 # ---------- section: trends ----------
@@ -251,46 +650,51 @@ def _section_trends(wellness: pd.DataFrame, activities: pd.DataFrame) -> str:
         return _wrap_section(
             "Trends",
             '<p class="muted">No data yet. Run <code>health sync</code>.</p>',
+            classes=["span-2"],
         )
 
-    rows: list[str] = []
+    cards: list[str] = []
     if not wellness.empty:
         w = wellness.copy()
         w["date"] = pd.to_datetime(w["date"])
         w = w.set_index("date").sort_index().tail(60)
         for col, label, lower_is_better in (
             ("hrv", "HRV", False),
-            ("rhr", "RHR", True),
-            ("sleep_duration_min", "Sleep min", False),
+            ("rhr", "Resting HR", True),
+            ("sleep_duration_min", "Sleep (min)", False),
             ("garmin_sleep_score", "Sleep score", False),
             ("ctl", "CTL (fitness)", False),
-            ("atl", "ATL (fatigue)", False),
+            ("atl", "ATL (fatigue)", True),
         ):
             if col in w.columns:
                 series = pd.to_numeric(w[col], errors="coerce").dropna()
                 if len(series) >= 3:
-                    rows.append(_spark_row(label, series, lower_is_better))
+                    cards.append(
+                        _trend_card(label, [float(v) for v in series.values], lower_is_better)
+                    )
 
     if not activities.empty:
         a = activities.copy()
         a["date"] = pd.to_datetime(a["date"])
         a["load"] = pd.to_numeric(a["load"], errors="coerce").fillna(0)
         daily_load = a.groupby(a["date"].dt.date)["load"].sum()
-        # ensure continuous range over last 60 days
         if not daily_load.empty:
             idx = pd.date_range(end=daily_load.index.max(), periods=60).date
             daily_load = daily_load.reindex(idx, fill_value=0)
-            rows.append(_spark_row("Daily load", pd.Series(daily_load.values), False))
+            cards.append(
+                _trend_card("Daily load", [float(v) for v in daily_load.values], False)
+            )
 
-    body_html = "<p class='muted'>Last 60 days. Right-most point is the most recent.</p>"
-    body_html += "".join(rows) if rows else "<p class='muted'>Not enough data.</p>"
-    return _wrap_section("Trends", body_html)
+    body_html = (
+        '<p class="muted" style="margin-top:0;">Last 60 days. Right-most point is most recent.</p>'
+        f'<div class="trends-grid">{"".join(cards) if cards else ""}</div>'
+    )
+    return _wrap_section("Trends", body_html, classes=["span-2"])
 
 
-def _spark_row(label: str, series: pd.Series, lower_is_better: bool) -> str:
-    values = [float(v) for v in series.values]
+def _trend_card(label: str, values: list[float], lower_is_better: bool) -> str:
     latest = values[-1]
-    sub = ""
+    delta_html = ""
     if len(values) >= 14:
         baseline_window = values[-29:-1] if len(values) > 28 else values[:-1]
         if baseline_window:
@@ -298,42 +702,55 @@ def _spark_row(label: str, series: pd.Series, lower_is_better: bool) -> str:
             delta = latest - mean
             sign = "+" if delta >= 0 else ""
             good = (delta < 0) if lower_is_better else (delta > 0)
-            color = "#0a7d3b" if good else "#b3261e"
-            sub = (
-                f"<span class='sub' style='color:{color}'>"
-                f"{sign}{delta:.1f} vs 28d mean {mean:.1f}</span>"
+            color = "var(--green)" if good else "var(--red)"
+            if abs(delta) < 0.2 * (max(values) - min(values) + 0.001):
+                color = "var(--muted)"
+            delta_html = (
+                f'<div class="delta" style="color:{color}">'
+                f"{sign}{delta:.1f} vs 28d mean {mean:.1f}</div>"
             )
-    svg = _sparkline_svg(values)
+    spark = _sparkline_svg(values)
+    lo, hi = min(values), max(values)
     return (
-        f"<div class='spark-row'>"
-        f"<span class='label'>{html.escape(label)}</span>"
-        f"{svg}"
-        f"<span class='value'>{latest:.1f}</span>"
-        f"{sub}"
-        f"</div>"
+        '<div class="trend">'
+        f'<div class="label">{html.escape(label)}</div>'
+        f'<div class="latest">{latest:.1f}</div>'
+        f"{delta_html}"
+        f"{spark}"
+        f'<div class="range">range {lo:.1f} – {hi:.1f}</div>'
+        "</div>"
     )
 
 
-def _sparkline_svg(values: list[float], width: int = 200, height: int = 28) -> str:
+def _sparkline_svg(values: list[float], width: int = 320, height: int = 60) -> str:
     if len(values) < 2:
         return ""
     lo, hi = min(values), max(values)
     span = hi - lo if hi > lo else 1.0
     n = len(values)
-    pts = []
+    pts: list[tuple[float, float]] = []
     for i, v in enumerate(values):
         x = (i / (n - 1)) * (width - 4) + 2
-        y = height - 2 - ((v - lo) / span) * (height - 4)
-        pts.append(f"{x:.1f},{y:.1f}")
-    polyline = " ".join(pts)
-    last_x, last_y = pts[-1].split(",")
+        y = height - 4 - ((v - lo) / span) * (height - 10)
+        pts.append((x, y))
+    poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    # Build an area path under the line.
+    first_x, _ = pts[0]
+    last_x, _ = pts[-1]
+    area_path = (
+        f"M {first_x:.1f} {height - 1} "
+        + " ".join(f"L {x:.1f} {y:.1f}" for x, y in pts)
+        + f" L {last_x:.1f} {height - 1} Z"
+    )
+    last_x_s, last_y_s = f"{pts[-1][0]:.1f}", f"{pts[-1][1]:.1f}"
     return (
-        f'<svg class="spark" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">'
-        f'<polyline points="{polyline}" fill="none" stroke="#3e5879" '
-        f'stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
-        f'<circle cx="{last_x}" cy="{last_y}" r="2.4" fill="#b3261e"/>'
-        f'</svg>'
+        f'<svg class="spark" viewBox="0 0 {width} {height}" preserveAspectRatio="none" '
+        f'xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+        f'<path d="{area_path}" fill="var(--accent)" opacity="0.14"/>'
+        f'<polyline points="{poly}" fill="none" stroke="var(--accent)" '
+        f'stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'<circle cx="{last_x_s}" cy="{last_y_s}" r="2.6" fill="var(--accent)"/>'
+        "</svg>"
     )
 
 
@@ -343,71 +760,103 @@ def _sparkline_svg(values: list[float], width: int = 200, height: int = 28) -> s
 def _section_weekly(p: dict[str, Any] | None) -> str:
     if not p:
         return _wrap_section(
-            "Weekly (rolling 7d)",
+            "Weekly (rolling 7 d)",
             '<p class="muted">No weekly report yet. Run <code>health report weekly</code>.</p>',
+            classes=["span-2"],
         )
-    g = p.get("goal_progress", {})
-    rows = [
-        ("Window", f"{p['week_start']} → {p['week_end']}"),
-        ("Avg sleep", f"{p['sleep']['avg_hours']:.2f} h"),
+    g = p.get("goal_progress", {}) or {}
+    t = p.get("training", {}) or {}
+
+    header_bits = [
+        f'<span class="chip">{html.escape(p["week_start"])} → {html.escape(p["week_end"])}</span>',
+        f'<span class="chip">{p["sleep"]["avg_hours"]:.2f} h avg sleep</span>',
     ]
-    if p.get("hrv"):
+    if p.get("hrv") and p["hrv"].get("latest") is not None:
         h = p["hrv"]
-        rows.append(
-            (
-                "HRV",
-                f"latest {_fmt(h.get('latest'))}, baseline mean "
-                f"{_fmt(h.get('mean'))} (n={h.get('n', 0)})",
-            )
+        header_bits.append(
+            f'<span class="chip">HRV {h["latest"]:.1f} '
+            f'(mean {_fmt(h.get("mean"))}, n={h.get("n", 0)})</span>'
         )
-    if p.get("rhr"):
+    if p.get("rhr") and p["rhr"].get("latest") is not None:
         h = p["rhr"]
-        rows.append(
-            (
-                "RHR",
-                f"latest {_fmt(h.get('latest'))}, baseline mean "
-                f"{_fmt(h.get('mean'))} (n={h.get('n', 0)})",
-            )
+        header_bits.append(
+            f'<span class="chip">RHR {h["latest"]:.1f} '
+            f'(mean {_fmt(h.get("mean"))}, n={h.get("n", 0)})</span>'
         )
+    header_html = '<div style="margin-bottom:14px;">' + " ".join(header_bits) + "</div>"
 
-    kv = "".join(
-        f"<div class='k'>{html.escape(k)}</div><div>{html.escape(str(v))}</div>"
-        for k, v in rows
+    # Goal progress bars
+    goal_rows: list[tuple[str, float, float, str, str]] = [
+        (
+            "Aerobic minutes",
+            float(g.get("weekly_minutes_actual", 0)),
+            float(g.get("weekly_minutes_min", 0) or 1),
+            f"{float(g.get('weekly_minutes_actual', 0)):.0f} / {g.get('weekly_minutes_min', 0):.0f}",
+            "min",
+        ),
+        (
+            "Z2 minutes",
+            float(g.get("weekly_z2_minutes_actual", 0)),
+            float(g.get("weekly_z2_minutes_min", 0) or 1),
+            f"{float(g.get('weekly_z2_minutes_actual', 0)):.0f} / {g.get('weekly_z2_minutes_min', 0):.0f}",
+            "min",
+        ),
+        (
+            "Strength sessions",
+            float(g.get("weekly_strength_sessions_actual", 0)),
+            float(g.get("weekly_strength_sessions_min", 0) or 1),
+            f"{int(g.get('weekly_strength_sessions_actual', 0))} / {int(g.get('weekly_strength_sessions_min', 0))}",
+            "cap",
+        ),
+        (
+            "Hard sessions",
+            float(g.get("weekly_hard_sessions_actual", 0)),
+            float(g.get("weekly_hard_sessions_max", 0) or 1),
+            f"{int(g.get('weekly_hard_sessions_actual', 0))} / ≤ {int(g.get('weekly_hard_sessions_max', 0))}",
+            "cap",
+        ),
+    ]
+    bar_html_parts: list[str] = []
+    for label, actual, target, val_text, kind in goal_rows:
+        pct = (actual / target) * 100 if target > 0 else 0.0
+        if label == "Hard sessions":
+            color = _bar_color_for_cap(actual, target)
+        elif kind == "cap":
+            color = _bar_color_for_min(actual, target)
+        else:
+            color = _bar_color_for_min(actual, target)
+        bar_html_parts.append(
+            '<div class="bar-row">'
+            f"<span>{html.escape(label)}</span>"
+            f"{_bar(min(pct, 100), color)}"
+            f'<span class="bar-val">{html.escape(val_text)}</span>'
+            "</div>"
+        )
+    goals_html = (
+        "<h3>Goal progress</h3>" + "".join(bar_html_parts) if bar_html_parts else ""
     )
 
-    minutes = p.get("training", {}).get("minutes_by_sport", {}) or {}
-    minutes_rows = "".join(
-        f"<tr><td>{html.escape(sport)}</td><td class='num'>{mins:.0f}</td></tr>"
-        for sport, mins in sorted(minutes.items(), key=lambda kv: -kv[1])
-    )
-    minutes_html = (
-        '<h3>Minutes by sport</h3>'
-        '<table><thead><tr><th>Sport</th><th>min</th></tr></thead>'
-        f"<tbody>{minutes_rows}</tbody></table>"
-        if minutes_rows
-        else ""
-    )
-
-    goal_rows = "".join(
-        f"<tr><td>{html.escape(label)}</td>"
-        f"<td class='num'>{actual:.0f}</td>"
-        f"<td class='num muted'>{target}</td></tr>"
-        for label, actual, target in [
-            ("Aerobic minutes", g.get("weekly_minutes_actual", 0), g.get("weekly_minutes_min", 0)),
-            ("Z2 minutes", g.get("weekly_z2_minutes_actual", 0), g.get("weekly_z2_minutes_min", 0)),
-            ("Hard sessions", g.get("weekly_hard_sessions_actual", 0), f"≤ {g.get('weekly_hard_sessions_max', 0)}"),
-            ("Strength sessions", g.get("weekly_strength_sessions_actual", 0), g.get("weekly_strength_sessions_min", 0)),
-        ]
-    )
-    goal_html = (
-        '<h3>Goal progress</h3>'
-        '<table><thead><tr><th>Goal</th><th>Actual</th><th>Target</th></tr></thead>'
-        f"<tbody>{goal_rows}</tbody></table>"
-    )
+    # Minutes by sport — normalized to max
+    minutes = t.get("minutes_by_sport", {}) or {}
+    sport_html = ""
+    if minutes:
+        max_v = max(minutes.values())
+        rows = []
+        for sport, mins in sorted(minutes.items(), key=lambda kv: -kv[1]):
+            pct = (mins / max_v) * 100 if max_v > 0 else 0.0
+            rows.append(
+                '<div class="bar-row">'
+                f"<span>{_sport_glyph(sport)} {html.escape(str(sport))}</span>"
+                f"{_bar(pct, 'blue')}"
+                f'<span class="bar-val">{mins:.0f} min</span>'
+                "</div>"
+            )
+        sport_html = "<h3>Minutes by sport</h3>" + "".join(rows)
 
     return _wrap_section(
-        "Weekly (rolling 7d)",
-        f'<div class="kv">{kv}</div>{minutes_html}{goal_html}',
+        "Weekly (rolling 7 d)",
+        f"{header_html}{goals_html}{sport_html}",
+        classes=["span-2"],
     )
 
 
@@ -416,32 +865,36 @@ def _section_monthly(p: dict[str, Any] | None) -> str:
         return _wrap_section(
             "Monthly",
             '<p class="muted">No monthly report yet. Run <code>health report monthly</code>.</p>',
+            classes=["span-2"],
         )
-    rows = [
-        ("Month", p.get("month", "")),
-        ("Avg sleep", f"{p.get('sleep_avg_hours', 0):.2f} h"),
-        ("Total training", f"{p.get('total_minutes', 0):.0f} min"),
+
+    chips = [
+        f'<span class="chip">{html.escape(p.get("month", ""))}</span>',
+        f'<span class="chip">{p.get("sleep_avg_hours", 0):.2f} h avg sleep</span>',
+        f'<span class="chip">{p.get("total_minutes", 0):.0f} total min</span>',
     ]
     if p.get("body", {}).get("weight_kg_delta") is not None:
-        rows.append(("Weight Δ", f"{p['body']['weight_kg_delta']:+.2f} kg"))
-    kv = "".join(
-        f"<div class='k'>{html.escape(k)}</div><div>{html.escape(str(v))}</div>"
-        for k, v in rows
-    )
+        delta = p["body"]["weight_kg_delta"]
+        chips.append(f'<span class="chip">Weight Δ {delta:+.2f} kg</span>')
+    header_html = '<div style="margin-bottom:14px;">' + " ".join(chips) + "</div>"
 
     minutes = p.get("minutes_by_sport", {}) or {}
-    minutes_rows = "".join(
-        f"<tr><td>{html.escape(sport)}</td><td class='num'>{mins:.0f}</td></tr>"
-        for sport, mins in sorted(minutes.items(), key=lambda kv: -kv[1])
-    )
-    minutes_html = (
-        '<h3>Minutes by sport</h3>'
-        '<table><thead><tr><th>Sport</th><th>min</th></tr></thead>'
-        f"<tbody>{minutes_rows}</tbody></table>"
-        if minutes_rows
-        else ""
-    )
-    return _wrap_section("Monthly", f'<div class="kv">{kv}</div>{minutes_html}')
+    sport_html = ""
+    if minutes:
+        max_v = max(minutes.values())
+        rows = []
+        for sport, mins in sorted(minutes.items(), key=lambda kv: -kv[1]):
+            pct = (mins / max_v) * 100 if max_v > 0 else 0.0
+            rows.append(
+                '<div class="bar-row">'
+                f"<span>{_sport_glyph(sport)} {html.escape(str(sport))}</span>"
+                f"{_bar(pct, 'blue')}"
+                f'<span class="bar-val">{mins:.0f} min</span>'
+                "</div>"
+            )
+        sport_html = "<h3>Minutes by sport</h3>" + "".join(rows)
+
+    return _wrap_section("Monthly", f"{header_html}{sport_html}", classes=["span-2"])
 
 
 # ---------- section: goals ----------
@@ -453,16 +906,127 @@ def _section_goals(goals: Goals | None) -> str:
             "Goals",
             '<p class="muted">No goals.md yet. Run <code>health init</code>.</p>',
         )
-    pretty = json.dumps(goals.model_dump(mode="json"), indent=2, default=str)
-    narrative = (
-        f"<h3>Narrative</h3><pre>{html.escape(goals.narrative_notes)}</pre>"
-        if goals.narrative_notes
-        else ""
-    )
+
+    p = goals.profile
+    sr = goals.sleep_recovery
+    ae = goals.aerobic
+    st = goals.strength
+    bs = goals.body_shape
+    gd = goals.guardrails
+    gw = goals.goal_weights
+
+    def card(title: str, rows: list[tuple[str, Any]]) -> str:
+        kv = "".join(
+            f'<div class="k">{html.escape(k)}</div>'
+            f'<div class="v">{_fmt_v(v)}</div>'
+            for k, v in rows
+        )
+        return f'<div class="goal-card"><h4>{html.escape(title)}</h4><div class="kv">{kv}</div></div>'
+
+    cards: list[str] = [
+        card(
+            "Profile",
+            [
+                ("Name", p.name),
+                ("Timezone", p.timezone),
+                ("Sex", p.sex or "—"),
+                ("Height (cm)", p.height_cm or "—"),
+                ("Birth year", p.birth_year or "—"),
+            ],
+        ),
+        card(
+            "Goal weights",
+            [
+                ("Sleep & recovery", gw.sleep_recovery),
+                ("Aerobic", gw.aerobic),
+                ("Strength", gw.strength),
+                ("Body shape", gw.body_shape),
+            ],
+        ),
+        card(
+            "Sleep & recovery",
+            [
+                (
+                    "Sleep duration target (h)",
+                    f"{sr.sleep_duration_range_h[0]:.1f}–{sr.sleep_duration_range_h[1]:.1f}"
+                    if len(sr.sleep_duration_range_h) >= 2
+                    else "—",
+                ),
+                ("Garmin sleep score min", sr.garmin_sleep_score_min),
+                ("HRV baseline window (d)", sr.hrv_baseline_window_days),
+                ("RHR baseline window (d)", sr.rhr_baseline_window_days),
+                ("Sleep latency target (min)", sr.sleep_latency_target_min),
+            ],
+        ),
+        card(
+            "Aerobic",
+            [
+                ("Weekly minutes min", ae.weekly_minutes_min),
+                ("Weekly Z2 minutes min", ae.weekly_z2_minutes_min),
+                ("Weekly hard sessions max", ae.weekly_hard_sessions_max),
+                ("Long run every (d)", ae.long_run_every_n_days),
+                ("Include cycling", ae.include_cycling),
+            ],
+        ),
+        card(
+            "Strength",
+            [
+                ("Weekly sessions min", st.weekly_sessions_min),
+                ("Patterns", st.movement_patterns),
+                ("Progressive overload", st.progressive_overload),
+            ],
+        ),
+        card(
+            "Body shape",
+            [
+                ("Weight trend", bs.weight_trend),
+                ("Waist cm target", bs.waist_cm_target or "—"),
+                ("Monthly photo check", bs.monthly_photo_check),
+                ("Subjective score min", bs.subjective_score_min),
+            ],
+        ),
+        card(
+            "Guardrails",
+            [
+                ("No hard if readiness <", gd.never_hard_training_if_readiness_below),
+                ("Avoid hard after bad sleep", gd.avoid_hard_training_after_bad_sleep),
+                ("Max consecutive training days", gd.max_consecutive_training_days),
+            ],
+        ),
+    ]
+
+    narrative_html = ""
+    if goals.narrative_notes.strip():
+        paragraphs = [
+            f"<p>{html.escape(p.strip())}</p>"
+            for p in goals.narrative_notes.strip().split("\n\n")
+            if p.strip()
+        ]
+        narrative_html = (
+            '<div class="goal-card" style="grid-column: 1 / -1;">'
+            "<h4>Narrative</h4>"
+            f'<div class="narrative">{"".join(paragraphs)}</div></div>'
+        )
+
     return _wrap_section(
         "Goals",
-        f"<pre>{html.escape(pretty)}</pre>{narrative}",
+        f'<div class="goals-grid">{"".join(cards)}{narrative_html}</div>',
+        classes=["span-2"],
     )
+
+
+def _fmt_v(v: Any) -> str:
+    if isinstance(v, bool):
+        return "✓" if v else "–"
+    if isinstance(v, list):
+        return "".join(
+            f'<span class="chip">{html.escape(str(item))}</span>' for item in v
+        )
+    if isinstance(v, float):
+        if v.is_integer():
+            return str(int(v))
+        return f"{v:.2f}"
+    return html.escape(str(v))
 
 
 # ---------- section: workouts ----------
@@ -473,30 +1037,54 @@ def _section_workouts(workouts: list[Workout]) -> str:
         return _wrap_section(
             "Workout library",
             '<p class="muted">No workouts loaded.</p>',
+            classes=["span-2"],
         )
-    rows = "".join(
-        f"<tr>"
-        f"<td>{html.escape(w.id)}</td>"
-        f"<td>{html.escape(w.meta.name)}</td>"
-        f"<td>{html.escape(w.sport)}</td>"
-        f"<td>{html.escape(w.meta.category)}</td>"
-        f"<td class='num'>{w.meta.duration_min}</td>"
-        f"<td class='num'>{w.meta.intensity}</td>"
-        f"<td class='num'>{w.meta.recovery_cost}</td>"
-        f"<td class='num'>{w.meta.min_readiness}</td>"
-        f"<td>{''.join(f'<span class=tag>{html.escape(t)}</span>' for t in w.meta.tags)}</td>"
-        f"</tr>"
-        for w in workouts
+    # Group by sport.
+    by_sport: dict[str, list[Workout]] = {}
+    for w in workouts:
+        by_sport.setdefault(w.sport, []).append(w)
+
+    group_order = ["run", "bike", "strength", "recovery", "walk", "swim", "hike"]
+    keys = [s for s in group_order if s in by_sport] + [
+        s for s in by_sport if s not in group_order
+    ]
+
+    groups_html: list[str] = []
+    for sport in keys:
+        items = by_sport[sport]
+        cards = []
+        for w in items:
+            tags_html = "".join(
+                f'<span class="chip">{html.escape(t)}</span>' for t in w.meta.tags
+            )
+            cards.append(
+                '<div class="wk-card">'
+                '<div class="top">'
+                f'<div class="glyph">{_sport_glyph(sport)}</div>'
+                f'<div><div class="name">{html.escape(w.meta.name)}</div>'
+                f'<div class="meta">{html.escape(w.meta.category)} · {w.meta.duration_min} min</div>'
+                "</div></div>"
+                '<div class="stats">'
+                f'<span><span class="label">Intensity</span>{_dots(w.meta.intensity)}</span>'
+                f'<span><span class="label">Recovery</span>{_dots(w.meta.recovery_cost)}</span>'
+                f'<span><span class="label">Min readiness</span> {w.meta.min_readiness}</span>'
+                "</div>"
+                f'<div class="tags">{tags_html}</div>'
+                "</div>"
+            )
+        groups_html.append(
+            '<div class="wk-group">'
+            f'<div class="gh">{_sport_glyph(sport)} {html.escape(sport.capitalize())}'
+            f' <span class="count">({len(items)})</span></div>'
+            f'<div class="wk-grid">{"".join(cards)}</div>'
+            "</div>"
+        )
+
+    return _wrap_section(
+        "Workout library",
+        "".join(groups_html),
+        classes=["span-2"],
     )
-    table = (
-        '<table><thead><tr>'
-        '<th>ID</th><th>Name</th><th>Sport</th><th>Category</th>'
-        '<th>Duration</th><th>Intensity</th><th>Recovery cost</th>'
-        '<th>Min readiness</th><th>Tags</th>'
-        '</tr></thead>'
-        f"<tbody>{rows}</tbody></table>"
-    )
-    return _wrap_section("Workout library", table)
 
 
 # ---------- section: data quality ----------
@@ -518,7 +1106,7 @@ def _section_data_quality(
         )
     )
     counts_html = (
-        '<table><thead><tr><th>Table</th><th>Rows</th></tr></thead>'
+        '<table><thead><tr><th>Table</th><th class="num">Rows</th></tr></thead>'
         f"<tbody>{counts_rows}</tbody></table>"
     )
 
@@ -529,22 +1117,34 @@ def _section_data_quality(
         cutoff = w["date"].max() - pd.Timedelta(days=29)
         recent = w[w["date"] >= cutoff]
         fields = [
-            "hrv", "rhr", "garmin_sleep_score", "sleep_duration_min",
-            "vo2max", "steps", "respiration", "spo2",
+            ("hrv", "HRV"),
+            ("rhr", "RHR"),
+            ("garmin_sleep_score", "Sleep score"),
+            ("sleep_duration_min", "Sleep duration"),
+            ("vo2max", "VO2max"),
+            ("steps", "Steps"),
+            ("respiration", "Respiration"),
+            ("spo2", "SpO₂"),
         ]
+        n_days = max(1, len(recent))
         rows = []
-        for f in fields:
-            if f in recent.columns:
-                filled = int(pd.to_numeric(recent[f], errors="coerce").notna().sum())
+        for col, label in fields:
+            if col in recent.columns:
+                filled = int(pd.to_numeric(recent[col], errors="coerce").notna().sum())
+                pct = filled / n_days * 100
+                cls = "low" if pct < 40 else ("partial" if pct < 80 else "")
                 rows.append(
-                    f"<tr><td>{html.escape(f)}</td>"
-                    f"<td class='num'>{filled}</td>"
-                    f"<td class='num muted'>/ {len(recent)}</td></tr>"
+                    f"<tr><td>{html.escape(label)}</td>"
+                    f"<td class='num'>{filled} / {n_days}</td>"
+                    f"<td>"
+                    f'<span class="coverage-bar"><span class="coverage-fill {cls}" '
+                    f'style="width:{pct:.0f}%"></span></span> '
+                    f'<span class="muted">{pct:.0f}%</span></td></tr>'
                 )
         if rows:
             coverage_html = (
-                '<h3>Wellness coverage (last 30 days)</h3>'
-                '<table><thead><tr><th>Field</th><th>Filled</th><th>Days</th></tr></thead>'
+                "<h3>Wellness coverage (last 30 days)</h3>"
+                '<table><thead><tr><th>Field</th><th class="num">Days filled</th><th>Coverage</th></tr></thead>'
                 f"<tbody>{''.join(rows)}</tbody></table>"
             )
 
@@ -554,8 +1154,26 @@ def _section_data_quality(
 # ---------- helpers ----------
 
 
-def _wrap_section(title: str, body_html: str) -> str:
-    return f'<section><h2>{html.escape(title)}</h2>\n{body_html}\n</section>'
+def _wrap_section(
+    title: str,
+    body_html: str,
+    classes: list[str] | None = None,
+    accent_var: str | None = None,
+) -> str:
+    extra = f" {' '.join(classes)}" if classes else ""
+    style = ""
+    accent_dot = ""
+    if accent_var:
+        style = f' style="border-top: 3px solid var(--{accent_var});"'
+        accent_dot = f'<span class="accent-dot" style="background: var(--{accent_var});"></span>'
+    else:
+        accent_dot = '<span class="accent-dot"></span>'
+    return (
+        f'<section class="card{extra}"{style}>'
+        f"<h2>{accent_dot}{title}</h2>\n"
+        f"{body_html}\n"
+        "</section>"
+    )
 
 
 def _latest_json(dir_path: Path) -> dict[str, Any] | None:
@@ -576,7 +1194,3 @@ def _fmt(v: Any) -> str:
     if isinstance(v, float):
         return f"{v:.1f}"
     return str(v)
-
-
-# Convenience for tests/manual exploration; not auto-executed when imported.
-_ = (date, timedelta)
