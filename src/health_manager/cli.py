@@ -464,13 +464,32 @@ def dashboard(
     no_open: bool = typer.Option(
         False, "--no-open", help="Write the HTML but don't auto-open the browser."
     ),
+    serve: bool = typer.Option(
+        False,
+        "--serve",
+        help="Run a tiny local HTTP server (127.0.0.1) so the page's "
+        "Refresh button can trigger a re-sync.",
+    ),
+    port: int = typer.Option(
+        8765, "--port", help="Port for --serve mode."
+    ),
 ) -> None:
-    """Regenerate the static HTML dashboard and open it in the default browser."""
-    from .dashboard import build_and_write_dashboard
+    """Regenerate the static HTML dashboard.
+
+    By default writes `data/reports/dashboard.html` and opens it via file://.
+    With `--serve`, also runs a local HTTP server on 127.0.0.1:PORT so a
+    Refresh button (top-right) can trigger `sync + today + reports +
+    rebuild` and reload the page in place.
+    """
+    from .dashboard import build_and_write_dashboard, serve_dashboard
 
     settings = load_settings()
     out = build_and_write_dashboard(settings)
     console.print(f"[green]wrote[/green] {out}")
+
+    if serve:
+        serve_dashboard(settings, port=port, open_browser=not no_open)
+        return
     if no_open:
         return
     _open_in_browser(out)

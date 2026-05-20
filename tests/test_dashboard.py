@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 
 from health_manager.config import Settings
-from health_manager.dashboard import build_and_write_dashboard
+from health_manager.dashboard import build_and_write_dashboard, build_dashboard_html
 from health_manager.storage import (
     connect,
     init_db,
@@ -142,3 +142,24 @@ def test_dashboard_renders_without_any_data(tmp_path, project_root):
     assert "<!doctype html>" in text
     assert "No daily report yet" in text
     assert "No data yet" in text
+
+
+def test_dashboard_file_does_not_include_refresh_button(tmp_path, project_root):
+    """The on-disk file:// version stays JS-free and has no refresh button."""
+    settings = _settings(tmp_path, project_root)
+    _seed_db(settings)
+    out = build_and_write_dashboard(settings)
+    text = out.read_text(encoding="utf-8")
+    assert "id=\"refresh-btn\"" not in text
+    assert "/api/refresh" not in text
+    assert "<script>" not in text
+
+
+def test_dashboard_served_html_includes_refresh_button(tmp_path, project_root):
+    """The served (with_refresh=True) HTML has the button + the POST script."""
+    settings = _settings(tmp_path, project_root)
+    _seed_db(settings)
+    served = build_dashboard_html(settings, with_refresh=True)
+    assert 'id="refresh-btn"' in served
+    assert "/api/refresh" in served
+    assert "location.reload()" in served

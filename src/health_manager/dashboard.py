@@ -29,8 +29,14 @@ from .workout_library import Workout, load_workouts
 # ---------- public entry point ----------
 
 
-def build_and_write_dashboard(settings: Settings) -> Path:
-    """Render the dashboard HTML and write it to `data/reports/dashboard.html`."""
+def build_dashboard_html(settings: Settings, *, with_refresh: bool = False) -> str:
+    """Render the dashboard HTML as a string.
+
+    `with_refresh=True` injects a small refresh button (top-right) whose JS
+    POSTs to `/api/refresh` and reloads on success. Only meaningful when the
+    page is served from the local HTTP server (`health dashboard --serve`);
+    leave False when writing to disk for file:// opening.
+    """
     goals: Goals | None = None
     if settings.goals_path.exists():
         goals = load_goals(settings.goals_path)
@@ -50,7 +56,15 @@ def build_and_write_dashboard(settings: Settings) -> Path:
         load_workouts(settings.workouts_dir) if settings.workouts_dir.exists() else []
     )
 
-    html_doc = _build_html(settings, goals, wellness, activities, body, recs, workouts)
+    return _build_html(
+        settings, goals, wellness, activities, body, recs, workouts,
+        with_refresh=with_refresh,
+    )
+
+
+def build_and_write_dashboard(settings: Settings) -> Path:
+    """Render the dashboard HTML and write it to `data/reports/dashboard.html`."""
+    html_doc = build_dashboard_html(settings, with_refresh=False)
     out = settings.reports_dir / "dashboard.html"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html_doc, encoding="utf-8")
@@ -372,6 +386,45 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .coverage-fill.partial { background: var(--yellow); }
 .coverage-fill.low { background: var(--red); }
 
+/* ---- Refresh toolbar (only rendered when served via health dashboard --serve) ---- */
+#refresh-toolbar {
+  position: fixed; top: 14px; right: 18px; z-index: 100;
+  display: flex; align-items: center; gap: 10px;
+  font-family: inherit;
+}
+#refresh-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid rgba(255,255,255,.4);
+  background: rgba(255,255,255,.18);
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 1px 4px rgba(0,0,0,.15);
+  transition: background-color .15s, transform .15s;
+}
+#refresh-btn:hover:not(:disabled) {
+  background: rgba(255,255,255,.30);
+  transform: translateY(-1px);
+}
+#refresh-btn:active:not(:disabled) { transform: translateY(0); }
+#refresh-btn:disabled { opacity: 0.7; cursor: progress; }
+#refresh-btn .rb-glyph { font-size: 15px; line-height: 1; }
+#refresh-btn.spinning .rb-glyph { animation: rb-spin 0.9s linear infinite; }
+@keyframes rb-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+#refresh-status {
+  font-size: 12px; color: #ffffff; opacity: 0.95;
+  background: rgba(0,0,0,.32);
+  border-radius: 999px; padding: 4px 10px;
+  max-width: 360px; min-height: 22px;
+}
+#refresh-status:empty { display: none; }
+#refresh-status.ok  { background: rgba(22,163,74,.55); }
+#refresh-status.err { background: rgba(220,38,38,.55); }
+
 /* ---- UI polish additions ---- */
 .subscore .bar {
   margin-top: 6px; height: 6px; background: var(--bg);
@@ -507,6 +560,7 @@ def _build_html(
     body: pd.DataFrame,
     recs: pd.DataFrame,
     workouts: list[Workout],
+    with_refresh: bool = False,
 ) -> str:
     daily_payload = _latest_json(settings.reports_dir / "daily")
     weekly_payload = _latest_json(settings.reports_dir / "weekly")
@@ -534,6 +588,14 @@ def _build_html(
         ]
     )
 
+    refresh_html = _REFRESH_BUTTON_HTML if with_refresh else ""
+    refresh_script = _REFRESH_SCRIPT if with_refresh else ""
+    footer_text = (
+        "health-manager · click ↻ to re-sync and rebuild"
+        if with_refresh
+        else "health-manager · open this file directly in your browser at any time"
+    )
+
     return (
         "<!doctype html>\n"
         '<html lang="en"><head>\n'
@@ -542,6 +604,7 @@ def _build_html(
         f"<title>Health Manager — {html.escape(generated_at)}</title>\n"
         f"<style>{_CSS}</style>\n"
         "</head><body>\n"
+        f"{refresh_html}"
         '<header class="app">\n'
         "  <h1>Health Manager</h1>\n"
         f'  <div class="meta">Local dashboard · generated {html.escape(generated_at)} · '
@@ -550,9 +613,53 @@ def _build_html(
         "<main>\n"
         f"{body_html}\n"
         "</main>\n"
-        '<footer class="app">health-manager · open this file directly in your browser at any time</footer>\n'
+        f'<footer class="app">{footer_text}</footer>\n'
+        f"{refresh_script}"
         "</body></html>\n"
     )
+
+
+# Inline refresh button + JS. Only rendered when the page is served via the
+# local HTTP server (i.e. when fetch('/api/refresh') has a peer to talk to).
+_REFRESH_BUTTON_HTML = """
+<div id="refresh-toolbar" aria-live="polite">
+  <button id="refresh-btn" type="button" title="Re-sync and rebuild this page">
+    <span class="rb-glyph">↻</span><span class="rb-label">Refresh</span>
+  </button>
+  <span id="refresh-status"></span>
+</div>
+"""
+
+_REFRESH_SCRIPT = """
+<script>
+(function () {
+  const btn = document.getElementById('refresh-btn');
+  const status = document.getElementById('refresh-status');
+  if (!btn) return;
+  btn.addEventListener('click', async function () {
+    btn.disabled = true;
+    btn.classList.add('spinning');
+    status.textContent = 'syncing… (≤ 30s on warm cache)';
+    status.className = '';
+    const t0 = performance.now();
+    try {
+      const resp = await fetch('/api/refresh', { method: 'POST' });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      status.textContent = 'done in ' + dt + 's — reloading';
+      status.className = 'ok';
+      setTimeout(function () { location.reload(); }, 250);
+    } catch (e) {
+      status.textContent = 'error: ' + e.message;
+      status.className = 'err';
+      btn.disabled = false;
+      btn.classList.remove('spinning');
+    }
+  });
+})();
+</script>
+"""
 
 
 # ---------- section: today ----------
@@ -1279,3 +1386,172 @@ def _fmt(v: Any) -> str:
     if isinstance(v, float):
         return f"{v:.1f}"
     return str(v)
+
+
+# ---------- local refresh server ----------
+
+
+def serve_dashboard(
+    settings: Settings,
+    port: int = 8765,
+    open_browser: bool = True,
+) -> None:
+    """Run a tiny local HTTP server that serves the dashboard with a refresh button.
+
+    Bound to 127.0.0.1 only — never exposed beyond the local machine. The
+    server is single-threaded; a single user clicking refresh ~once per
+    minute is fine. Blocks until Ctrl-C.
+
+    Routes:
+      GET  /                  -> generated HTML (fresh on every request)
+      GET  /healthz           -> 200 "ok"
+      POST /api/refresh       -> runs sync(7) + today + weekly + monthly;
+                                 returns {"ok": true, "elapsed_s": float}
+                                 or    {"ok": false, "error": str}
+    """
+    import contextlib
+    import http.server
+    import json as _json
+    import logging
+    import socketserver
+    import time
+    import webbrowser
+
+    log = logging.getLogger(__name__)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        # Quiet the access log — surface only warnings.
+        def log_message(self, fmt: str, *args: Any) -> None:  # noqa: N802
+            log.debug("http: " + fmt, *args)
+
+        def _send(self, status: int, body: bytes, content_type: str) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store, must-revalidate")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path in ("/", "/index.html", "/dashboard.html"):
+                try:
+                    html_doc = build_dashboard_html(settings, with_refresh=True)
+                except Exception as e:
+                    log.exception("dashboard render failed")
+                    self._send(
+                        500,
+                        f"render error: {e}".encode(),
+                        "text/plain; charset=utf-8",
+                    )
+                    return
+                self._send(200, html_doc.encode("utf-8"), "text/html; charset=utf-8")
+                return
+            if self.path == "/healthz":
+                self._send(200, b"ok", "text/plain; charset=utf-8")
+                return
+            if self.path == "/favicon.ico":
+                self._send(204, b"", "image/x-icon")
+                return
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+
+        def do_POST(self) -> None:  # noqa: N802
+            if self.path != "/api/refresh":
+                self._send(404, b"not found", "text/plain; charset=utf-8")
+                return
+            t0 = time.time()
+            try:
+                _run_refresh_pipeline(settings)
+                payload = _json.dumps(
+                    {"ok": True, "elapsed_s": time.time() - t0}
+                ).encode("utf-8")
+                self._send(200, payload, "application/json; charset=utf-8")
+            except Exception as e:
+                log.exception("refresh failed")
+                payload = _json.dumps(
+                    {"ok": False, "error": str(e), "elapsed_s": time.time() - t0}
+                ).encode("utf-8")
+                self._send(500, payload, "application/json; charset=utf-8")
+
+    addr = ("127.0.0.1", port)
+    url = f"http://127.0.0.1:{port}/"
+    with socketserver.TCPServer(addr, Handler) as httpd:
+        httpd.allow_reuse_address = True
+        print(f"Serving on {url}  (Ctrl-C to stop)")
+        if open_browser:
+            with contextlib.suppress(Exception):
+                webbrowser.open(url)
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nStopping.")
+
+
+def _run_refresh_pipeline(settings: Settings) -> None:
+    """Execute the full daily pipeline (sync -> readiness -> reports -> dashboard file).
+
+    Used by the /api/refresh endpoint. Imports are kept local so the dashboard
+    module doesn't pull these into the static-HTML build path.
+    """
+    from datetime import date as _date
+
+    from .config import (
+        load_goals,
+        load_metric_mapping,
+        load_scoring,
+    )
+    from .ingest import sync as _sync
+    from .recommender import recommend
+    from .reports import write_daily, write_monthly, write_weekly
+    from .scoring import compute_confidence, compute_readiness
+    from .storage import (
+        connect,
+        init_db,
+        read_activities,
+        read_checkins,
+        read_wellness,
+        upsert_recommendation,
+    )
+    from .workout_library import load_workouts
+
+    today = _date.today()
+
+    if settings.intervals_api_key:
+        mapping = load_metric_mapping(settings.metric_mapping_path)
+        _sync(settings, mapping, days=7)
+
+    goals = load_goals(settings.goals_path)
+    scoring = load_scoring(settings.scoring_path)
+    workouts = load_workouts(settings.workouts_dir)
+
+    with connect(settings.sqlite_path) as conn:
+        init_db(conn)
+        wellness = read_wellness(conn)
+        activities = read_activities(conn)
+        checkins = read_checkins(conn)
+
+    readiness = compute_readiness(today, wellness, activities, checkins, goals, scoring)
+    confidence = compute_confidence(
+        today, wellness, activities, goals, scoring,
+        readiness.hrv_stat, readiness.rhr_stat,
+    )
+    rec = recommend(today, workouts, readiness, confidence, goals, activities, wellness)
+
+    write_daily(settings, rec)
+    write_weekly(settings, goals, today)
+    write_monthly(settings, goals, today)
+
+    from dataclasses import asdict
+
+    with connect(settings.sqlite_path) as conn:
+        upsert_recommendation(
+            conn,
+            date=today.isoformat(),
+            workout_id=rec.main.workout_id if rec.main else None,
+            readiness=readiness.score,
+            readiness_level=readiness.level,
+            confidence=confidence.level,
+            payload={"main": asdict(rec.main) if rec.main else None},
+        )
+
+    # Also write the static disk version so file:// still works after exit.
+    build_and_write_dashboard(settings)
