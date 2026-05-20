@@ -115,7 +115,24 @@ def weekly_window_bounds(as_of: date) -> tuple[date, date]:
     return monday, sunday
 
 
+_CANONICAL_AEROBIC = {"run", "bike", "walk", "hike"}
+
+
+def _canonical_series(activities: pd.DataFrame) -> pd.Series:
+    """Return the canonical-sport series, falling back to raw `sport` if missing."""
+    if "sport_canonical" in activities.columns:
+        s = activities["sport_canonical"].fillna("")
+        # Fall back when canonical is empty (older rows pre-migration).
+        if "sport" in activities.columns:
+            s = s.where(s != "", activities["sport"].fillna(""))
+        return s.str.lower()
+    if "sport" in activities.columns:
+        return activities["sport"].fillna("").str.lower()
+    return pd.Series([""] * len(activities), index=activities.index)
+
+
 def weekly_minutes_by_sport(activities: pd.DataFrame, as_of: date) -> dict[str, float]:
+    """Returns minutes-per-sport using canonical sport labels (run/bike/strength/...)."""
     if activities.empty:
         return {}
     monday, sunday = weekly_window_bounds(as_of)
@@ -124,11 +141,12 @@ def weekly_minutes_by_sport(activities: pd.DataFrame, as_of: date) -> dict[str, 
     if df.empty:
         return {}
     df["duration_min"] = pd.to_numeric(df["duration_min"], errors="coerce").fillna(0)
-    return df.groupby(df["sport"].fillna("unknown"))["duration_min"].sum().to_dict()
+    df["sport_key"] = _canonical_series(df).replace("", "other")
+    return df.groupby("sport_key")["duration_min"].sum().to_dict()
 
 
 def weekly_z2_minutes(activities: pd.DataFrame, as_of: date) -> float:
-    """Heuristic: count minutes from activities where intensity is missing or <70 as Z2."""
+    """Heuristic: count minutes in aerobic sports where intensity is missing or <70 as Z2."""
     if activities.empty:
         return 0.0
     monday, sunday = weekly_window_bounds(as_of)
@@ -137,8 +155,9 @@ def weekly_z2_minutes(activities: pd.DataFrame, as_of: date) -> float:
         return 0.0
     df["duration_min"] = pd.to_numeric(df["duration_min"], errors="coerce").fillna(0)
     df["intensity"] = pd.to_numeric(df["intensity"], errors="coerce")
-    sport_ok = df["sport"].isin(["Run", "Ride", "Walk", "Hike", "VirtualRide"])
-    z2_mask = (df["intensity"].isna() | (df["intensity"] < 70)) & sport_ok
+    canonical = _canonical_series(df)
+    aerobic_mask = canonical.isin(_CANONICAL_AEROBIC)
+    z2_mask = (df["intensity"].isna() | (df["intensity"] < 70)) & aerobic_mask
     return float(df.loc[z2_mask, "duration_min"].sum())
 
 
@@ -161,10 +180,8 @@ def weekly_strength_sessions(activities: pd.DataFrame, as_of: date) -> int:
     df = activities[(activities["date"] >= monday) & (activities["date"] <= sunday)]
     if df.empty:
         return 0
-    sport = df["sport"].fillna("").str.lower()
-    typ = df["type"].fillna("").str.lower() if "type" in df.columns else pd.Series("", index=df.index)
-    return int(((sport == "weighttraining") | sport.str.contains("strength")
-                | typ.str.contains("strength")).sum())
+    canonical = _canonical_series(df)
+    return int((canonical == "strength").sum())
 
 
 def baseline_stability(stat: BaselineStat, target_days: int, floor_days: int) -> float:

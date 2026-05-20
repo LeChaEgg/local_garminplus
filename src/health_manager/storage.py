@@ -21,7 +21,7 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_STATEMENTS: list[str] = [
     """
@@ -73,6 +73,7 @@ SCHEMA_STATEMENTS: list[str] = [
         id TEXT PRIMARY KEY,
         date TEXT NOT NULL,
         sport TEXT,
+        sport_canonical TEXT,
         type TEXT,
         name TEXT,
         description TEXT,
@@ -180,40 +181,115 @@ def _now_iso() -> str:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create tables and ensure schema version matches. Recreates on mismatch."""
+    """Create tables and run forward migrations.
+
+    Strategy:
+      1. Ensure the `_meta` table exists; read current schema version.
+      2. If no schema yet → create everything fresh and stamp the version.
+      3. If `current < SCHEMA_VERSION` → run each migration in order using
+         `ALTER TABLE ADD COLUMN`, preserving existing rows (the user's
+         manual entries in `manual_body_metrics` / `daily_checkins` are kept).
+      4. Run the `CREATE TABLE IF NOT EXISTS` statements at the end as a
+         no-op safety net (only affects tables that don't yet exist).
+    """
     cur = conn.cursor()
     cur.execute(
         "CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
     )
     cur.execute("SELECT value FROM _meta WHERE key = 'schema_version'")
     row = cur.fetchone()
-    current = int(row[0]) if row else None
+    current = int(row[0]) if row else 0
 
-    if current is not None and current != SCHEMA_VERSION:
-        log.warning(
-            "Schema version mismatch (db=%s, code=%s); recreating processed tables.",
-            current,
-            SCHEMA_VERSION,
-        )
-        for tbl in (
-            "wellness_daily",
-            "activities",
-            "activity_intervals",
-            "manual_body_metrics",
-            "daily_checkins",
-            "recommendations",
-            "reports",
-        ):
-            cur.execute(f"DROP TABLE IF EXISTS {tbl}")
-
-    for stmt in SCHEMA_STATEMENTS:
-        cur.execute(stmt)
+    if current == 0:
+        for stmt in SCHEMA_STATEMENTS:
+            cur.execute(stmt)
+    else:
+        for from_v, to_v, steps in _MIGRATIONS:
+            if current < to_v:
+                log.info("Migrating schema %d -> %d", from_v, to_v)
+                for stmt in steps(cur):
+                    try:
+                        cur.execute(stmt)
+                    except sqlite3.OperationalError as e:
+                        # "duplicate column name" is fine — the column was
+                        # added in a previous partial migration.
+                        if "duplicate column" not in str(e).lower():
+                            raise
+                current = to_v
+        for stmt in SCHEMA_STATEMENTS:
+            cur.execute(stmt)
 
     cur.execute(
         "INSERT OR REPLACE INTO _meta(key, value) VALUES (?, ?)",
         ("schema_version", str(SCHEMA_VERSION)),
     )
     conn.commit()
+
+
+# ---------- migration steps ----------
+
+
+def _migration_v1_to_v2(cur: sqlite3.Cursor) -> list[str]:
+    """v1 -> v2: add canonical Garmin/Intervals.icu fields to wellness/activities."""
+    wellness_cols = {
+        "hrv_sdnn": "REAL",
+        "avg_sleeping_hr": "REAL",
+        "sleep_quality_score": "REAL",
+        "respiration": "REAL",
+        "spo2": "REAL",
+        "mood": "REAL",
+        "body_fat_pct": "REAL",
+        "waist_cm": "REAL",
+        "bp_systolic": "REAL",
+        "bp_diastolic": "REAL",
+        "vo2max": "REAL",
+        "steps": "REAL",
+        "garmin_readiness": "REAL",
+        "ctl_load": "REAL",
+        "atl_load": "REAL",
+        "comments": "TEXT",
+        "source_updated_at": "TEXT",
+    }
+    activity_cols = {
+        "description": "TEXT",
+        "efficiency_factor": "REAL",
+        "variability_index": "REAL",
+        "decoupling": "REAL",
+        "polarization_index": "REAL",
+        "avg_cadence": "REAL",
+        "avg_speed": "REAL",
+        "max_speed": "REAL",
+        "elevation_gain_m": "REAL",
+        "kg_lifted": "REAL",
+        "feel": "REAL",
+        "perceived_exertion": "REAL",
+        "session_rpe": "REAL",
+        "ftp": "REAL",
+        "lthr": "REAL",
+        "trimp": "REAL",
+        "hr_load": "REAL",
+        "pace_load": "REAL",
+        "power_load": "REAL",
+        "source_updated_at": "TEXT",
+    }
+    stmts: list[str] = []
+    for col, typ in wellness_cols.items():
+        stmts.append(f"ALTER TABLE wellness_daily ADD COLUMN {col} {typ}")
+    for col, typ in activity_cols.items():
+        stmts.append(f"ALTER TABLE activities ADD COLUMN {col} {typ}")
+    return stmts
+
+
+def _migration_v2_to_v3(cur: sqlite3.Cursor) -> list[str]:
+    """v2 -> v3: add `sport_canonical` to activities."""
+    return ["ALTER TABLE activities ADD COLUMN sport_canonical TEXT"]
+
+
+# Ordered list of (from_version, to_version, callable -> list[stmt]).
+_MIGRATIONS: list[tuple[int, int, Any]] = [
+    (1, 2, _migration_v1_to_v2),
+    (2, 3, _migration_v2_to_v3),
+]
 
 
 # ---------- meta helpers ----------
@@ -268,7 +344,7 @@ def upsert_wellness(conn: sqlite3.Connection, record: dict[str, Any]) -> None:
 
 
 _ACTIVITY_COLS = (
-    "id", "date", "sport", "type", "name", "description",
+    "id", "date", "sport", "sport_canonical", "type", "name", "description",
     "duration_min", "elapsed_min", "distance_m", "load", "intensity",
     "efficiency_factor", "variability_index", "decoupling", "polarization_index",
     "avg_hr", "max_hr", "avg_power", "avg_cadence", "avg_speed", "max_speed",

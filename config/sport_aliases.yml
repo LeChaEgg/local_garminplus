@@ -1,0 +1,62 @@
+# Maps Intervals.icu / source-side `sport` (or `type`) values to canonical
+# internal sport labels: run | bike | strength | walk | hike | swim | recovery
+# | rockclimbing | other.
+#
+# Matching is case-insensitive against this table. Unknown values fall back to
+# "other" and are logged. Edit this file (no code change) when a new device
+# emits a label we haven't seen — e.g. Apple Watch uses `Running`/`Cycling`,
+# Wahoo uses `Cycling`, COROS uses `Run`.
+
+run:
+  - Run
+  - Running
+  - VirtualRun
+  - TrailRun
+  - TreadmillRun
+
+bike:
+  - Ride
+  - Cycling
+  - VirtualRide
+  - EBikeRide
+  - GravelRide
+  - MountainBikeRide
+  - IndoorRide
+  - Handcycle
+
+walk:
+  - Walk
+  - Walking
+  - Treadmill_Walk
+
+hike:
+  - Hike
+  - Hiking
+
+swim:
+  - Swim
+  - Swimming
+  - OpenWaterSwim
+  - PoolSwim
+
+strength:
+  - WeightTraining
+  - Strength
+  - StrengthTraining
+  - Workout
+  - HIIT
+  - Crossfit
+
+recovery:
+  - Yoga
+  - Stretching
+  - Pilates
+  - BreathWork
+  - Meditation
+  - Mobility
+
+rockclimbing:
+  - RockClimbing
+  - Climbing
+  - Bouldering
+  - IndoorClimbing

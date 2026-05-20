@@ -71,7 +71,13 @@ def recommend(
     activities: pd.DataFrame,
     wellness: pd.DataFrame,
 ) -> Recommendation:
-    # Aggregate weekly state once.
+    # Defensive: tolerate None/empty inputs from callers.
+    if activities is None:
+        activities = pd.DataFrame()
+    if wellness is None:
+        wellness = pd.DataFrame()
+
+    # Aggregate weekly state once. Each helper is itself empty-safe.
     minutes_by_sport = weekly_minutes_by_sport(activities, today)
     z2_min = weekly_z2_minutes(activities, today)
     hard_count = weekly_hard_sessions(activities, today)
@@ -273,12 +279,8 @@ def _weekly_balance(wk: Workout, ws: dict, goals: Goals) -> float:
     total = sum(minutes.values())
     if total <= 0:
         return 0.6
-    sport_key = {
-        "run": "Run",
-        "bike": "Ride",
-        "strength": "WeightTraining",
-        "recovery": "Walk",
-    }.get(wk.sport, wk.sport)
+    # weekly_minutes_by_sport now keys by canonical sport (run/bike/strength/recovery/...).
+    sport_key = "recovery" if wk.sport == "recovery" else wk.sport
     used = minutes.get(sport_key, 0.0)
     ratio = used / total
     return max(0.0, 1.0 - ratio)
@@ -289,12 +291,8 @@ def _variety(wk: Workout, ws: dict) -> float:
     minutes = ws["minutes_by_sport"]
     if not minutes:
         return 0.5
-    sport_key = {
-        "run": "Run",
-        "bike": "Ride",
-        "strength": "WeightTraining",
-        "recovery": "Walk",
-    }.get(wk.sport, wk.sport)
+    # weekly_minutes_by_sport now keys by canonical sport (run/bike/strength/recovery/...).
+    sport_key = "recovery" if wk.sport == "recovery" else wk.sport
     if minutes.get(sport_key, 0.0) == 0:
         return 1.0
     return 0.4

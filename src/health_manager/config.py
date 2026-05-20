@@ -224,6 +224,10 @@ class Settings(BaseModel):
     def metric_mapping_path(self) -> Path:
         return self.config_dir / "metric_mapping.yml"
 
+    @property
+    def sport_aliases_path(self) -> Path:
+        return self.config_dir / "sport_aliases.yml"
+
 
 def load_settings(project_root: Path | None = None) -> Settings:
     """Build a Settings object. Loads .env if present."""
@@ -266,6 +270,71 @@ def load_metric_mapping(path: Path) -> MetricMapping:
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     return MetricMapping.model_validate(data)
+
+
+# ---------- sport aliases ----------
+
+
+CANONICAL_SPORTS = {
+    "run", "bike", "walk", "hike", "swim", "strength", "recovery",
+    "rockclimbing", "other",
+}
+
+
+def load_sport_aliases(path: Path | None) -> dict[str, str]:
+    """Load sport_aliases.yml into a lowercase {alias: canonical} mapping.
+
+    Missing file → returns a small built-in default keyed off Intervals.icu
+    labels so the tool still works without the config.
+    """
+    if path is None or not path.exists():
+        raw: dict[str, list[str]] = _DEFAULT_SPORT_ALIASES
+    else:
+        with path.open("r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    out: dict[str, str] = {}
+    for canonical, aliases in raw.items():
+        canonical_l = canonical.strip().lower()
+        if canonical_l not in CANONICAL_SPORTS:
+            log.info("sport_aliases: unrecognized canonical '%s'", canonical)
+        out[canonical_l] = canonical_l
+        for alias in aliases or []:
+            out[str(alias).strip().lower()] = canonical_l
+    return out
+
+
+def canonical_sport(raw_value: str | None, aliases: dict[str, str]) -> str:
+    """Map a raw activity sport/type string to a canonical label.
+
+    Unknown values are returned as 'other' (so they show up but don't crash
+    sport-keyed lookups). Pass an empty/None value → 'other' too.
+    """
+    if not raw_value:
+        return "other"
+    key = str(raw_value).strip().lower()
+    return aliases.get(key, "other")
+
+
+_DEFAULT_SPORT_ALIASES: dict[str, list[str]] = {
+    "run": ["Run", "Running", "VirtualRun", "TrailRun", "TreadmillRun"],
+    "bike": [
+        "Ride", "Cycling", "VirtualRide", "EBikeRide", "GravelRide",
+        "MountainBikeRide", "IndoorRide", "Handcycle",
+    ],
+    "walk": ["Walk", "Walking", "Treadmill_Walk"],
+    "hike": ["Hike", "Hiking"],
+    "swim": ["Swim", "Swimming", "OpenWaterSwim", "PoolSwim"],
+    "strength": [
+        "WeightTraining", "Strength", "StrengthTraining", "Workout",
+        "HIIT", "Crossfit",
+    ],
+    "recovery": [
+        "Yoga", "Stretching", "Pilates", "BreathWork", "Meditation", "Mobility",
+    ],
+    "rockclimbing": [
+        "RockClimbing", "Climbing", "Bouldering", "IndoorClimbing",
+    ],
+}
 
 
 def normalize_record(record: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:

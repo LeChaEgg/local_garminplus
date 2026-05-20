@@ -14,6 +14,7 @@ Athlete id may be "0" to refer to the authenticated athlete.
 from __future__ import annotations
 
 import logging
+import random
 import time
 from datetime import date
 from typing import Any
@@ -26,6 +27,8 @@ DEFAULT_BASE_URL = "https://intervals.icu"
 DEFAULT_TIMEOUT_S = 30.0
 MAX_RETRIES = 3
 BACKOFF_BASE_S = 1.0
+BACKOFF_MAX_S = 30.0
+JITTER_FRAC = 0.25   # +/- 25% jitter on backoff
 
 
 class IntervalsAPIError(RuntimeError):
@@ -92,23 +95,36 @@ class IntervalsClient:
 
     def _request(self, method: str, url: str, **kwargs: Any) -> Any:
         last_exc: Exception | None = None
+        last_status: int | None = None
         for attempt in range(MAX_RETRIES):
             try:
                 resp = self._client.request(method, url, **kwargs)
             except httpx.HTTPError as e:
                 last_exc = e
-                log.warning("Intervals.icu request error (attempt %d): %s", attempt + 1, e)
-                time.sleep(BACKOFF_BASE_S * (2 ** attempt))
-                continue
-
-            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
                 log.warning(
-                    "Intervals.icu %s %s -> %s (attempt %d)",
-                    method, url, resp.status_code, attempt + 1,
+                    "Intervals.icu request error (attempt %d/%d): %s",
+                    attempt + 1, MAX_RETRIES, e,
                 )
-                time.sleep(BACKOFF_BASE_S * (2 ** attempt))
+                time.sleep(_sleep_for(attempt, retry_after=None))
                 continue
 
+            last_status = resp.status_code
+            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
+                retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
+                log.warning(
+                    "Intervals.icu %s %s -> %s (attempt %d/%d, retry in %.1fs)",
+                    method, url, resp.status_code, attempt + 1, MAX_RETRIES,
+                    retry_after if retry_after is not None else _sleep_for(attempt, None),
+                )
+                time.sleep(_sleep_for(attempt, retry_after))
+                continue
+
+            if resp.status_code in (401, 403):
+                # Auth problems don't get retries — bail with a helpful message.
+                raise IntervalsAPIError(
+                    f"{method} {url} -> HTTP {resp.status_code}: authentication "
+                    "failed. Check INTERVALS_API_KEY and INTERVALS_ATHLETE_ID in .env."
+                )
             if resp.status_code >= 400:
                 raise IntervalsAPIError(
                     f"{method} {url} -> HTTP {resp.status_code}: {resp.text[:200]}"
@@ -118,9 +134,31 @@ class IntervalsClient:
             except ValueError as e:
                 raise IntervalsAPIError(f"non-JSON response from {url}: {e}") from e
 
-        raise IntervalsAPIError(
-            f"{method} {url} failed after {MAX_RETRIES} attempts: {last_exc}"
+        last = (
+            f"last HTTP {last_status}" if last_status else f"last error {last_exc}"
         )
+        raise IntervalsAPIError(
+            f"{method} {url} failed after {MAX_RETRIES} attempts ({last})"
+        )
+
+
+def _parse_retry_after(header_value: str | None) -> float | None:
+    """Parse a Retry-After header. Accepts integer seconds; HTTP-date forms unsupported."""
+    if not header_value:
+        return None
+    try:
+        return max(0.0, float(header_value))
+    except ValueError:
+        return None
+
+
+def _sleep_for(attempt: int, retry_after: float | None) -> float:
+    """Compute backoff with jitter, honoring Retry-After if the server set it."""
+    if retry_after is not None:
+        return min(BACKOFF_MAX_S, retry_after)
+    base = min(BACKOFF_MAX_S, BACKOFF_BASE_S * (2 ** attempt))
+    jitter = base * JITTER_FRAC
+    return max(0.0, base + random.uniform(-jitter, jitter))
 
 
 def _as_list(data: Any) -> list[dict[str, Any]]:

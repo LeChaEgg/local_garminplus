@@ -16,7 +16,13 @@ from datetime import UTC, date, timedelta
 from pathlib import Path
 from typing import Any
 
-from .config import MetricMapping, Settings, normalize_record
+from .config import (
+    MetricMapping,
+    Settings,
+    canonical_sport,
+    load_sport_aliases,
+    normalize_record,
+)
 from .intervals_client import IntervalsClient
 from .storage import (
     connect,
@@ -62,6 +68,8 @@ def sync(
     today = today or date.today()
     oldest = today - timedelta(days=days)
 
+    sport_aliases = load_sport_aliases(settings.sport_aliases_path)
+
     owned_client = False
     if client is None:
         client = IntervalsClient(
@@ -80,6 +88,7 @@ def sync(
 
         with connect(settings.sqlite_path) as conn:
             init_db(conn)
+            _backfill_sport_canonical(conn, sport_aliases)
 
             for raw in wellness:
                 normalized = normalize_record(raw, mapping.wellness)
@@ -113,6 +122,10 @@ def sync(
                     normalized["duration_min"] = float(normalized["duration_sec"]) / 60.0
                 if normalized.get("elapsed_min") is None and normalized.get("elapsed_sec"):
                     normalized["elapsed_min"] = float(normalized["elapsed_sec"]) / 60.0
+                normalized["sport_canonical"] = canonical_sport(
+                    normalized.get("sport") or normalized.get("type"),
+                    sport_aliases,
+                )
                 normalized["is_hard"] = int(_is_hard(normalized))
                 upsert_activity(conn, normalized)
                 report.activity_count += 1
@@ -191,7 +204,7 @@ _KNOWN_WELLNESS = {
 }
 
 _KNOWN_ACTIVITY = {
-    "id", "date", "date_utc", "sport", "type", "name", "description",
+    "id", "date", "date_utc", "sport", "sport_canonical", "type", "name", "description",
     "duration_min", "duration_sec", "elapsed_min", "elapsed_sec",
     "distance_m", "load", "intensity",
     "efficiency_factor", "variability_index", "decoupling", "polarization_index",
@@ -253,3 +266,26 @@ def _utc_now_iso() -> str:
     from datetime import datetime
 
     return datetime.now(UTC).isoformat()
+
+
+def _backfill_sport_canonical(conn, aliases: dict[str, str]) -> int:
+    """Fill `sport_canonical` for rows where it's NULL or empty.
+
+    Idempotent — only touches rows that need it. Returns count updated.
+    """
+    cur = conn.execute(
+        "SELECT id, sport, type FROM activities "
+        "WHERE sport_canonical IS NULL OR sport_canonical = ''"
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return 0
+    updates = [
+        (canonical_sport(row["sport"] or row["type"], aliases), row["id"])
+        for row in rows
+    ]
+    conn.executemany(
+        "UPDATE activities SET sport_canonical = ? WHERE id = ?", updates
+    )
+    log.info("Backfilled sport_canonical for %d activity rows.", len(updates))
+    return len(updates)

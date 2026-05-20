@@ -305,6 +305,157 @@ def report_monthly(
     console.print(f"[green]wrote[/green] {md} and {js}")
 
 
+# ---------- doctor ----------
+
+
+@app.command()
+def doctor() -> None:
+    """Run a quick environment + config + data sanity check.
+
+    Reports OK / WARN / FAIL for each check and exits non-zero only when
+    something is clearly broken (parser errors, missing required env vars).
+    """
+    settings = load_settings()
+    results = _run_doctor_checks(settings)
+
+    n_fail = sum(1 for r in results if r[0] == "FAIL")
+    n_warn = sum(1 for r in results if r[0] == "WARN")
+
+    style = {"OK": "green", "WARN": "yellow", "FAIL": "red"}
+    for status, label, detail in results:
+        console.print(
+            f"[{style[status]}]{status:<4}[/{style[status]}]  "
+            f"[bold]{label}[/bold]  {detail}"
+        )
+
+    console.print()
+    if n_fail:
+        console.print(f"[red]✗ {n_fail} failing, {n_warn} warning(s).[/red]")
+        raise typer.Exit(code=1)
+    if n_warn:
+        console.print(f"[yellow]△ {n_warn} warning(s) — fix when convenient.[/yellow]")
+        return
+    console.print("[green]✓ All checks passed.[/green]")
+
+
+def _run_doctor_checks(settings) -> list[tuple[str, str, str]]:
+    """Returns a list of (status, label, detail) tuples."""
+    from datetime import datetime, timedelta
+
+    out: list[tuple[str, str, str]] = []
+
+    # Project layout
+    root = settings.project_root
+    if not (root / "pyproject.toml").exists():
+        out.append(("WARN", "project root", f"{root} has no pyproject.toml"))
+    else:
+        out.append(("OK", "project root", str(root)))
+
+    # Env vars
+    if settings.intervals_api_key:
+        masked = settings.intervals_api_key[:3] + "…" + settings.intervals_api_key[-3:]
+        out.append(("OK", "INTERVALS_API_KEY", f"set ({masked})"))
+    else:
+        out.append(("WARN", "INTERVALS_API_KEY", "not set — sync will fail"))
+    out.append(("OK", "INTERVALS_ATHLETE_ID", settings.intervals_athlete_id))
+    out.append(("OK", "LOCAL_TIMEZONE", settings.local_timezone))
+
+    # Config files
+    for label, p in (
+        ("goals.md", settings.goals_path),
+        ("scoring.yml", settings.scoring_path),
+        ("metric_mapping.yml", settings.metric_mapping_path),
+        ("sport_aliases.yml", settings.sport_aliases_path),
+    ):
+        if not p.exists():
+            out.append(("WARN", f"config: {label}", f"missing at {p}"))
+            continue
+        try:
+            if label == "goals.md":
+                load_goals(p)
+            elif label == "scoring.yml":
+                load_scoring(p)
+            elif label == "metric_mapping.yml":
+                load_metric_mapping(p)
+            elif label == "sport_aliases.yml":
+                from .config import load_sport_aliases as _lsa
+                _lsa(p)
+        except Exception as e:
+            out.append(("FAIL", f"config: {label}", f"parse error: {e}"))
+            continue
+        out.append(("OK", f"config: {label}", "parses cleanly"))
+
+    # Workouts library
+    try:
+        wks = load_workouts(settings.workouts_dir)
+    except Exception as e:
+        out.append(("FAIL", "workouts library", f"load error: {e}"))
+    else:
+        by_sport: dict[str, int] = {}
+        for w in wks:
+            by_sport[w.sport] = by_sport.get(w.sport, 0) + 1
+        summary = ", ".join(f"{k}:{v}" for k, v in sorted(by_sport.items()))
+        if not wks:
+            out.append(("WARN", "workouts library", "empty"))
+        elif len(wks) < 6:
+            out.append(("WARN", "workouts library", f"only {len(wks)} workouts — {summary}"))
+        else:
+            out.append(("OK", "workouts library", f"{len(wks)} loaded ({summary})"))
+
+    # SQLite
+    if not settings.sqlite_path.exists():
+        out.append(("WARN", "SQLite db", f"not created yet at {settings.sqlite_path}"))
+    else:
+        try:
+            with connect(settings.sqlite_path) as conn:
+                init_db(conn)
+                wellness_n = conn.execute(
+                    "SELECT COUNT(*) FROM wellness_daily"
+                ).fetchone()[0]
+                act_n = conn.execute("SELECT COUNT(*) FROM activities").fetchone()[0]
+                last_sync = get_meta(conn, "last_sync_utc")
+                schema_v = get_meta(conn, "schema_version")
+        except Exception as e:
+            out.append(("FAIL", "SQLite db", f"open error: {e}"))
+            return out
+        out.append(
+            ("OK", "SQLite db",
+             f"wellness={wellness_n}, activities={act_n}, schema_v={schema_v}")
+        )
+        if last_sync:
+            try:
+                t = datetime.fromisoformat(last_sync)
+                age_h = (datetime.now(t.tzinfo) - t).total_seconds() / 3600.0
+                if age_h > 24:
+                    out.append(("WARN", "last sync", f"{age_h:.1f}h ago — consider `health sync`"))
+                else:
+                    out.append(("OK", "last sync", f"{age_h:.1f}h ago"))
+            except ValueError:
+                out.append(("WARN", "last sync", f"unparseable: {last_sync}"))
+        else:
+            out.append(("WARN", "last sync", "never — run `health sync`"))
+
+        # Baseline freshness for HRV
+        if wellness_n > 0:
+            try:
+                with connect(settings.sqlite_path) as conn:
+                    hrv_n = conn.execute(
+                        "SELECT COUNT(*) FROM wellness_daily "
+                        "WHERE hrv IS NOT NULL AND date >= ?",
+                        ((datetime.now() - timedelta(days=28)).date().isoformat(),),
+                    ).fetchone()[0]
+            except Exception:
+                hrv_n = 0
+            if hrv_n < 7:
+                out.append(("WARN", "HRV baseline", f"only {hrv_n}/28 days populated"))
+            elif hrv_n < 21:
+                out.append(("WARN", "HRV baseline", f"{hrv_n}/28 days — still building"))
+            else:
+                out.append(("OK", "HRV baseline", f"{hrv_n}/28 days"))
+
+    return out
+
+
 # ---------- dashboard ----------
 
 
