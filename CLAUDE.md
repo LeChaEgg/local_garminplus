@@ -132,6 +132,10 @@ testable with local fixtures (`tests/fixtures/*.json`).
   DBs), `ingest.py::_KNOWN_WELLNESS` (so it's not logged as "unknown").
 - **Add a new workout**: drop a Markdown file under `workouts/<sport>/`.
   Front-matter `id` must be globally unique.
+- **Enable CI on GitHub**: a ready workflow is staged at the repo root as
+  `ci.yml.example`. Move it to `.github/workflows/ci.yml` and push.
+  Requires the `gh` token to have `workflow` scope —
+  `gh auth refresh -h github.com -s workflow` if you hit a push rejection.
 - **Tweak readiness weights**: `config/scoring.yml`. Code reads it via
   `config.load_scoring`.
 - **Tweak guardrails** (max consecutive days, no-hard threshold, etc.):
