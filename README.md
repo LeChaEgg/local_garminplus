@@ -1,10 +1,10 @@
 # health-manager
 
-Local-first personal health management and daily training recommender. Sources wellness and activity data from [Intervals.icu](https://intervals.icu) (which already aggregates Garmin data), computes a transparent rule-based readiness score, and picks today's workout from a Markdown-based local library.
+Local-first personal health management and daily training recommender. Sources wellness and activity data from [Intervals.icu](https://intervals.icu) (which aggregates watch data), computes a transparent rule-based readiness score, and picks today's workout from a Markdown-based local library.
 
 Designed for a single user. All data stays on disk; nothing is sent to any external LLM service.
 
-> **Tested data source:** this repo has only been exercised with a **Garmin Forerunner 255** syncing into **Intervals.icu**. Other watches / data sources (Apple Watch, Wahoo, Polar, COROS, etc.) and other Garmin models are *not guaranteed* to work — sport-name labels, intensity scales, sleep-duration units, and HRV methodology can differ, which would silently degrade weekly goal accounting and the `is_hard` heuristic even though the code won't crash. Use with caution outside this tested setup.
+> **Data source note:** this repo was first exercised with a **Garmin Forerunner 255** syncing into **Intervals.icu**. Common Apple Watch sport labels are normalized via `config/sport_aliases.yml`, but wellness metrics, intensity scales, sleep-duration units, and HRV methodology can still vary by source.
 
 ## Stack
 
@@ -51,6 +51,7 @@ tests/              Test suite using local fixtures
 - **`config/goals.md`** — YAML front matter holds structured goals (profile, weights, guardrails, weekly aerobic/strength targets). The Markdown body can hold freeform "fuzzy" goals for future review.
 - **`config/scoring.yml`** — readiness weights, thresholds, baseline windows.
 - **`config/metric_mapping.yml`** — Intervals.icu field name → canonical field. Unknown fields are logged, not crashed.
+- **`config/sport_aliases.yml`** — source sport labels → canonical labels (`run`, `bike`, `strength`, etc.), including common Apple Watch labels.
 
 ## Design notes
 

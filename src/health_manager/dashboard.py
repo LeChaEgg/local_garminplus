@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ import pandas as pd
 from .config import Goals, Settings, load_goals
 from .storage import (
     connect,
+    get_meta,
     read_activities,
     read_body_metrics,
     read_recommendations,
@@ -45,19 +47,23 @@ def build_dashboard_html(settings: Settings, *, with_refresh: bool = False) -> s
     activities = pd.DataFrame()
     body = pd.DataFrame()
     recs = pd.DataFrame()
+    meta: dict[str, str] = {}
     if settings.sqlite_path.exists():
         with connect(settings.sqlite_path) as conn:
             wellness = read_wellness(conn)
             activities = read_activities(conn)
             body = read_body_metrics(conn)
             recs = read_recommendations(conn)
+            last_sync = get_meta(conn, "last_sync_utc")
+            if last_sync:
+                meta["last_sync_utc"] = last_sync
 
     workouts = (
         load_workouts(settings.workouts_dir) if settings.workouts_dir.exists() else []
     )
 
     return _build_html(
-        settings, goals, wellness, activities, body, recs, workouts,
+        settings, goals, wellness, activities, body, recs, workouts, meta,
         with_refresh=with_refresh,
     )
 
@@ -312,6 +318,32 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .lvl-orange { color: var(--orange); }
 .lvl-red { color: var(--red); }
 
+/* ---- Freshness and recent activity ---- */
+.freshness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+.freshness-card {
+  background: var(--card-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; min-width: 0;
+}
+.freshness-card .label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--muted); font-weight: 700;
+}
+.freshness-card .value {
+  font-size: 16px; font-weight: 700; margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.freshness-card .sub {
+  color: var(--muted); font-size: 12px; margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.table-scroll { overflow-x: auto; }
+.activity-table td, .activity-table th { white-space: nowrap; }
+.activity-table td.activity-name { white-space: normal; min-width: 220px; }
+
 /* ---- Trends ---- */
 .trends-grid {
   display: grid;
@@ -560,6 +592,7 @@ def _build_html(
     body: pd.DataFrame,
     recs: pd.DataFrame,
     workouts: list[Workout],
+    meta: dict[str, str],
     with_refresh: bool = False,
 ) -> str:
     daily_payload = _latest_json(settings.reports_dir / "daily")
@@ -579,7 +612,15 @@ def _build_html(
     body_html = "\n".join(
         [
             _section_today(daily_payload),
+            _section_freshness(
+                meta,
+                wellness,
+                activities,
+                daily_payload,
+                local_timezone=settings.local_timezone,
+            ),
             _section_trends(wellness, activities),
+            _section_recent_activities(activities),
             _section_weekly(weekly_payload),
             _section_monthly(monthly_payload),
             _section_goals(goals),
@@ -747,7 +788,8 @@ def _section_today(p: dict[str, Any] | None) -> str:
     reasons_html = ""
     if r.get("reasons"):
         items = "".join(
-            f"<li>{html.escape(reason)}</li>" for reason in r["reasons"]
+            f"<li>{html.escape(_plain_metric_text(reason))}</li>"
+            for reason in r["reasons"]
         )
         reasons_html = f'<h3>Why</h3><ul class="reasons">{items}</ul>'
 
@@ -756,7 +798,7 @@ def _section_today(p: dict[str, Any] | None) -> str:
     if nr:
         rows = "".join(
             f'<tr><td>{_sport_glyph(item["sport"])} {html.escape(item["name"])}</td>'
-            f"<td>{html.escape('; '.join(item['reasons']))}</td></tr>"
+            f"<td>{html.escape('; '.join(_plain_metric_text(reason) for reason in item['reasons']))}</td></tr>"
             for item in nr
         )
         not_rec_html = (
@@ -784,6 +826,84 @@ def _section_today(p: dict[str, Any] | None) -> str:
     )
 
 
+# ---------- section: freshness ----------
+
+
+def _section_freshness(
+    meta: dict[str, str],
+    wellness: pd.DataFrame,
+    activities: pd.DataFrame,
+    daily_payload: dict[str, Any] | None,
+    *,
+    local_timezone: str | None,
+) -> str:
+    last_sync = meta.get("last_sync_utc")
+    sync_value = _format_timestamp(last_sync, local_timezone) if last_sync else "Never synced"
+    sync_sub = (
+        f"Intervals.icu sync finished {_age_text(last_sync, local_timezone)}"
+        if last_sync
+        else "Run health sync to pull data from Intervals.icu."
+    )
+
+    wellness_row = _latest_row_by_date(wellness)
+    if wellness_row is not None:
+        wellness_date = _format_date_value(wellness_row.get("date"))
+        source_updated = _format_timestamp(wellness_row.get("source_updated_at"), local_timezone)
+        wellness_sub = (
+            f"Source updated {source_updated}"
+            if source_updated
+            else "Latest daily wellness row in SQLite."
+        )
+    else:
+        wellness_date = "No wellness data"
+        wellness_sub = "Run health sync to populate daily wellness data."
+
+    activity_row = _latest_activity_row(activities)
+    if activity_row is not None:
+        activity_date = _format_date_value(activity_row.get("date"))
+        sport = _sport_label(activity_row.get("sport_canonical") or activity_row.get("sport"))
+        name = _display_text(activity_row.get("name") or activity_row.get("type"), "Untitled activity")
+        activity_value = f"{activity_date} · {sport}"
+        activity_source = _format_timestamp(activity_row.get("source_updated_at"), local_timezone)
+        activity_sub = (
+            f"{name} · source updated {activity_source}"
+            if activity_source
+            else name
+        )
+    else:
+        activity_value = "No activities"
+        activity_sub = "Run health sync to populate the recent activity list."
+
+    report_date = _display_text((daily_payload or {}).get("date"), "No daily report")
+    report_sub = (
+        "Readiness and workout recommendation are based on this report."
+        if daily_payload
+        else "Run health today to compute readiness."
+    )
+
+    cards = [
+        _freshness_card("Latest Intervals.icu sync", sync_value, sync_sub),
+        _freshness_card("Latest wellness day", wellness_date, wellness_sub),
+        _freshness_card("Latest synced activity", activity_value, activity_sub),
+        _freshness_card("Latest readiness report", report_date, report_sub),
+    ]
+    return _wrap_section(
+        "Data freshness",
+        f'<div class="freshness-grid">{"".join(cards)}</div>',
+        classes=["span-2"],
+    )
+
+
+def _freshness_card(label: str, value: str, sub: str) -> str:
+    return (
+        '<div class="freshness-card">'
+        f'<div class="label">{html.escape(label)}</div>'
+        f'<div class="value">{html.escape(value)}</div>'
+        f'<div class="sub">{html.escape(sub)}</div>'
+        "</div>"
+    )
+
+
 # ---------- section: trends ----------
 
 
@@ -801,12 +921,12 @@ def _section_trends(wellness: pd.DataFrame, activities: pd.DataFrame) -> str:
         w["date"] = pd.to_datetime(w["date"])
         w = w.set_index("date").sort_index().tail(60)
         for col, label, lower_is_better in (
-            ("hrv", "HRV", False),
-            ("rhr", "Resting HR", True),
-            ("sleep_duration_min", "Sleep (min)", False),
+            ("hrv", "Heart rate variability (HRV)", False),
+            ("rhr", "Resting heart rate", True),
+            ("sleep_duration_min", "Sleep duration (minutes)", False),
             ("garmin_sleep_score", "Sleep score", False),
-            ("ctl", "CTL (fitness)", False),
-            ("atl", "ATL (fatigue)", True),
+            ("ctl", "Fitness load (CTL)", False),
+            ("atl", "Fatigue load (ATL)", True),
         ):
             if col in w.columns:
                 series = pd.to_numeric(w[col], errors="coerce").dropna()
@@ -834,6 +954,61 @@ def _section_trends(wellness: pd.DataFrame, activities: pd.DataFrame) -> str:
     return _wrap_section("Trends", body_html, classes=["span-2"])
 
 
+# ---------- section: recent activities ----------
+
+
+def _section_recent_activities(activities: pd.DataFrame, limit: int = 10) -> str:
+    if activities.empty:
+        return _wrap_section(
+            "Recent sports activities",
+            '<p class="muted">No activities yet. Run <code>health sync</code>.</p>',
+            classes=["span-2"],
+        )
+
+    a = activities.copy()
+    a["_date_sort"] = pd.to_datetime(a["date"], errors="coerce")
+    if "source_updated_at" in a.columns:
+        a["_source_sort"] = pd.to_datetime(a["source_updated_at"], errors="coerce", utc=True)
+    else:
+        a["_source_sort"] = pd.NaT
+    a = a.sort_values(
+        ["_date_sort", "_source_sort"],
+        ascending=[False, False],
+        na_position="last",
+    ).head(limit)
+
+    rows = []
+    for _, row in a.iterrows():
+        sport = row.get("sport_canonical") or row.get("sport") or row.get("type")
+        name = row.get("name") or row.get("type") or "Untitled activity"
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(_format_date_value(row.get('date')))}</td>"
+            f"<td>{_sport_glyph(str(sport) if sport is not None else None)} "
+            f"{html.escape(_sport_label(sport))}</td>"
+            f'<td class="activity-name">{html.escape(_display_text(name, "Untitled activity"))}</td>'
+            f"<td class='num'>{html.escape(_fmt_minutes(row.get('duration_min')))}</td>"
+            f"<td class='num'>{html.escape(_fmt_distance(row.get('distance_m')))}</td>"
+            f"<td class='num'>{html.escape(_fmt_number(row.get('load'), digits=0))}</td>"
+            f"<td class='num'>{html.escape(_fmt_number(row.get('intensity'), digits=0))}</td>"
+            f"<td class='num'>{html.escape(_fmt_number(row.get('avg_hr'), digits=0))}</td>"
+            "</tr>"
+        )
+
+    body_html = (
+        '<p class="muted" style="margin-top:0;">Most recent activities stored locally from Intervals.icu.</p>'
+        '<div class="table-scroll"><table class="activity-table">'
+        "<thead><tr>"
+        "<th>Date</th><th>Sport</th><th>Activity</th>"
+        "<th class='num'>Duration</th><th class='num'>Distance</th>"
+        "<th class='num'>Training load</th><th class='num'>Intensity</th>"
+        "<th class='num'>Average heart rate</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+    )
+    return _wrap_section("Recent sports activities", body_html, classes=["span-2"])
+
+
 def _trend_card(label: str, values: list[float], lower_is_better: bool) -> str:
     latest = values[-1]
     spread = (max(values) - min(values)) or 1.0
@@ -857,7 +1032,7 @@ def _trend_card(label: str, values: list[float], lower_is_better: bool) -> str:
                 metric_direction = "good" if good else "bad"
             delta_html = (
                 f'<div class="delta" style="color:{color}">'
-                f"{sign}{delta:.1f} vs 28d mean {mean:.1f}</div>"
+                f"{sign}{delta:.1f} vs 28-day mean {mean:.1f}</div>"
             )
 
     # 7-day vs 28-day arrow.
@@ -871,14 +1046,14 @@ def _trend_card(label: str, values: list[float], lower_is_better: bool) -> str:
             p_mean = sum(prior) / len(prior)
             shift = r_mean - p_mean
             if abs(shift) < 0.1 * spread:
-                arrow_html = '<span class="arrow flat" title="flat vs 28d">→</span>'
+                arrow_html = '<span class="arrow flat" title="flat vs 28-day mean">→</span>'
             else:
                 going_good = (shift < 0) if lower_is_better else (shift > 0)
                 cls = "up" if going_good else "down"
                 glyph = "↗" if shift > 0 else "↘"
                 arrow_html = (
                     f'<span class="arrow {cls}" '
-                    f'title="7d mean {r_mean:.1f} vs 28d mean {p_mean:.1f}">{glyph}</span>'
+                    f'title="7-day mean {r_mean:.1f} vs 28-day mean {p_mean:.1f}">{glyph}</span>'
                 )
 
     spark = _sparkline_svg(values, direction=metric_direction)
@@ -947,7 +1122,7 @@ def _sparkline_svg(
 def _section_weekly(p: dict[str, Any] | None) -> str:
     if not p:
         return _wrap_section(
-            "Weekly (rolling 7 d)",
+            "Weekly (rolling 7 days)",
             '<p class="muted">No weekly report yet. Run <code>health report weekly</code>.</p>',
             classes=["span-2"],
         )
@@ -956,18 +1131,18 @@ def _section_weekly(p: dict[str, Any] | None) -> str:
 
     header_bits = [
         f'<span class="chip">{html.escape(p["week_start"])} → {html.escape(p["week_end"])}</span>',
-        f'<span class="chip">{p["sleep"]["avg_hours"]:.2f} h avg sleep</span>',
+        f'<span class="chip">{p["sleep"]["avg_hours"]:.2f} hours average sleep</span>',
     ]
     if p.get("hrv") and p["hrv"].get("latest") is not None:
         h = p["hrv"]
         header_bits.append(
-            f'<span class="chip">HRV {h["latest"]:.1f} '
+            f'<span class="chip">Heart rate variability (HRV) {h["latest"]:.1f} '
             f'(mean {_fmt(h.get("mean"))}, n={h.get("n", 0)})</span>'
         )
     if p.get("rhr") and p["rhr"].get("latest") is not None:
         h = p["rhr"]
         header_bits.append(
-            f'<span class="chip">RHR {h["latest"]:.1f} '
+            f'<span class="chip">Resting heart rate {h["latest"]:.1f} '
             f'(mean {_fmt(h.get("mean"))}, n={h.get("n", 0)})</span>'
         )
     header_html = '<div style="margin-bottom:14px;">' + " ".join(header_bits) + "</div>"
@@ -982,7 +1157,7 @@ def _section_weekly(p: dict[str, Any] | None) -> str:
             "min",
         ),
         (
-            "Z2 minutes",
+            "Zone 2 minutes",
             float(g.get("weekly_z2_minutes_actual", 0)),
             float(g.get("weekly_z2_minutes_min", 0) or 1),
             f"{float(g.get('weekly_z2_minutes_actual', 0)):.0f} / {g.get('weekly_z2_minutes_min', 0):.0f}",
@@ -1035,7 +1210,7 @@ def _section_weekly(p: dict[str, Any] | None) -> str:
             pct = (mins / max_v) * 100 if max_v > 0 else 0.0
             rows.append(
                 '<div class="bar-row">'
-                f"<span>{_sport_glyph(sport)} {html.escape(str(sport))}</span>"
+                f"<span>{_sport_glyph(sport)} {html.escape(_sport_label(sport))}</span>"
                 f"{_bar(pct, 'blue')}"
                 f'<span class="bar-val">{mins:.0f} min</span>'
                 "</div>"
@@ -1043,7 +1218,7 @@ def _section_weekly(p: dict[str, Any] | None) -> str:
         sport_html = "<h3>Minutes by sport</h3>" + "".join(rows)
 
     return _wrap_section(
-        "Weekly (rolling 7 d)",
+        "Weekly (rolling 7 days)",
         f"{header_html}{goals_html}{sport_html}",
         classes=["span-2"],
     )
@@ -1059,8 +1234,8 @@ def _section_monthly(p: dict[str, Any] | None) -> str:
 
     chips = [
         f'<span class="chip">{html.escape(p.get("month", ""))}</span>',
-        f'<span class="chip">{p.get("sleep_avg_hours", 0):.2f} h avg sleep</span>',
-        f'<span class="chip">{p.get("total_minutes", 0):.0f} total min</span>',
+        f'<span class="chip">{p.get("sleep_avg_hours", 0):.2f} hours average sleep</span>',
+        f'<span class="chip">{p.get("total_minutes", 0):.0f} total minutes</span>',
     ]
     if p.get("body", {}).get("weight_kg_delta") is not None:
         delta = p["body"]["weight_kg_delta"]
@@ -1076,7 +1251,7 @@ def _section_monthly(p: dict[str, Any] | None) -> str:
             pct = (mins / max_v) * 100 if max_v > 0 else 0.0
             rows.append(
                 '<div class="bar-row">'
-                f"<span>{_sport_glyph(sport)} {html.escape(str(sport))}</span>"
+                f"<span>{_sport_glyph(sport)} {html.escape(_sport_label(sport))}</span>"
                 f"{_bar(pct, 'blue')}"
                 f'<span class="bar-val">{mins:.0f} min</span>'
                 "</div>"
@@ -1119,7 +1294,7 @@ def _section_goals(goals: Goals | None) -> str:
                 ("Name", p.name),
                 ("Timezone", p.timezone),
                 ("Sex", p.sex or "—"),
-                ("Height (cm)", p.height_cm or "—"),
+                ("Height (centimeters)", p.height_cm or "—"),
                 ("Birth year", p.birth_year or "—"),
             ],
         ),
@@ -1136,24 +1311,24 @@ def _section_goals(goals: Goals | None) -> str:
             "Sleep & recovery",
             [
                 (
-                    "Sleep duration target (h)",
+                    "Sleep duration target (hours)",
                     f"{sr.sleep_duration_range_h[0]:.1f}–{sr.sleep_duration_range_h[1]:.1f}"
                     if len(sr.sleep_duration_range_h) >= 2
                     else "—",
                 ),
-                ("Garmin sleep score min", sr.garmin_sleep_score_min),
-                ("HRV baseline window (d)", sr.hrv_baseline_window_days),
-                ("RHR baseline window (d)", sr.rhr_baseline_window_days),
-                ("Sleep latency target (min)", sr.sleep_latency_target_min),
+                ("Source sleep score min", sr.garmin_sleep_score_min),
+                ("Heart rate variability baseline (days)", sr.hrv_baseline_window_days),
+                ("Resting heart rate baseline (days)", sr.rhr_baseline_window_days),
+                ("Sleep latency target (minutes)", sr.sleep_latency_target_min),
             ],
         ),
         card(
             "Aerobic",
             [
                 ("Weekly minutes min", ae.weekly_minutes_min),
-                ("Weekly Z2 minutes min", ae.weekly_z2_minutes_min),
+                ("Weekly Zone 2 minutes min", ae.weekly_z2_minutes_min),
                 ("Weekly hard sessions max", ae.weekly_hard_sessions_max),
-                ("Long run every (d)", ae.long_run_every_n_days),
+                ("Long run every (days)", ae.long_run_every_n_days),
                 ("Include cycling", ae.include_cycling),
             ],
         ),
@@ -1259,7 +1434,7 @@ def _section_workouts(
                 '<div class="stats">'
                 f'<span><span class="label">Intensity</span>{_dots(w.meta.intensity)}</span>'
                 f'<span><span class="label">Recovery</span>{_dots(w.meta.recovery_cost)}</span>'
-                f'<span><span class="label">Min readiness</span> {w.meta.min_readiness}</span>'
+                f'<span><span class="label">Minimum readiness</span> {w.meta.min_readiness}</span>'
                 "</div>"
                 f'<div class="tags">{tags_html}</div>'
                 "</div>"
@@ -1309,14 +1484,14 @@ def _section_data_quality(
         cutoff = w["date"].max() - pd.Timedelta(days=29)
         recent = w[w["date"] >= cutoff]
         fields = [
-            ("hrv", "HRV"),
-            ("rhr", "RHR"),
+            ("hrv", "Heart rate variability (HRV)"),
+            ("rhr", "Resting heart rate"),
             ("garmin_sleep_score", "Sleep score"),
             ("sleep_duration_min", "Sleep duration"),
-            ("vo2max", "VO2max"),
+            ("vo2max", "VO2 max"),
             ("steps", "Steps"),
             ("respiration", "Respiration"),
-            ("spo2", "SpO₂"),
+            ("spo2", "Blood oxygen (SpO2)"),
         ]
         n_days = max(1, len(recent))
         rows = []
@@ -1386,6 +1561,175 @@ def _fmt(v: Any) -> str:
     if isinstance(v, float):
         return f"{v:.1f}"
     return str(v)
+
+
+def _is_missing(v: Any) -> bool:
+    if v is None:
+        return True
+    try:
+        return bool(pd.isna(v))
+    except (TypeError, ValueError):
+        return False
+
+
+def _display_text(v: Any, fallback: str = "—") -> str:
+    if _is_missing(v):
+        return fallback
+    text = str(v).strip()
+    return text or fallback
+
+
+def _safe_float(v: Any) -> float | None:
+    if _is_missing(v):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_number(v: Any, *, digits: int = 1) -> str:
+    n = _safe_float(v)
+    if n is None:
+        return "—"
+    if digits == 0:
+        return f"{n:.0f}"
+    return f"{n:.{digits}f}"
+
+
+def _fmt_minutes(v: Any) -> str:
+    n = _safe_float(v)
+    if n is None:
+        return "—"
+    return f"{n:.0f} min"
+
+
+def _fmt_distance(v: Any) -> str:
+    meters = _safe_float(v)
+    if meters is None:
+        return "—"
+    if meters >= 1000:
+        return f"{meters / 1000:.2f} km"
+    return f"{meters:.0f} m"
+
+
+def _format_date_value(v: Any) -> str:
+    if _is_missing(v):
+        return "—"
+    try:
+        return pd.Timestamp(v).strftime("%Y-%m-%d")
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _parse_timestamp(v: Any, local_timezone: str | None) -> pd.Timestamp | None:
+    if _is_missing(v):
+        return None
+    try:
+        ts = pd.Timestamp(v)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(ts):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    try:
+        return ts.tz_convert(local_timezone or "UTC")
+    except (TypeError, ValueError):
+        return ts.tz_convert("UTC")
+
+
+def _format_timestamp(v: Any, local_timezone: str | None) -> str | None:
+    ts = _parse_timestamp(v, local_timezone)
+    if ts is None:
+        return None
+    return ts.strftime("%Y-%m-%d %H:%M %Z")
+
+
+def _age_text(v: Any, local_timezone: str | None) -> str:
+    ts = _parse_timestamp(v, local_timezone)
+    if ts is None:
+        return "at an unknown time"
+    try:
+        now = pd.Timestamp.now(tz=local_timezone or "UTC")
+    except (TypeError, ValueError):
+        now = pd.Timestamp.now(tz="UTC")
+    seconds = max(0.0, (now - ts).total_seconds())
+    if seconds < 90:
+        return "just now"
+    hours = seconds / 3600
+    if hours < 48:
+        return f"{hours:.1f} hours ago"
+    return f"{hours / 24:.0f} days ago"
+
+
+def _latest_row_by_date(df: pd.DataFrame) -> pd.Series | None:
+    if df.empty or "date" not in df.columns:
+        return None
+    rows = df.copy()
+    rows["_date_sort"] = pd.to_datetime(rows["date"], errors="coerce")
+    rows = rows.sort_values("_date_sort", ascending=False, na_position="last")
+    if rows.empty:
+        return None
+    return rows.iloc[0]
+
+
+def _latest_activity_row(activities: pd.DataFrame) -> pd.Series | None:
+    if activities.empty:
+        return None
+    rows = activities.copy()
+    rows["_date_sort"] = pd.to_datetime(rows["date"], errors="coerce")
+    if "source_updated_at" in rows.columns:
+        rows["_source_sort"] = pd.to_datetime(rows["source_updated_at"], errors="coerce", utc=True)
+    else:
+        rows["_source_sort"] = pd.NaT
+    rows = rows.sort_values(
+        ["_date_sort", "_source_sort"],
+        ascending=[False, False],
+        na_position="last",
+    )
+    return rows.iloc[0] if not rows.empty else None
+
+
+def _sport_label(v: Any) -> str:
+    raw = _display_text(v, "Other")
+    labels = {
+        "run": "Run",
+        "bike": "Bike",
+        "ride": "Bike",
+        "ebikeride": "E-bike ride",
+        "virtualride": "Virtual ride",
+        "virtualrun": "Virtual run",
+        "strength": "Strength",
+        "weighttraining": "Strength",
+        "recovery": "Recovery",
+        "walk": "Walk",
+        "swim": "Swim",
+        "hike": "Hike",
+        "rockclimbing": "Rock climbing",
+        "other": "Other",
+    }
+    return labels.get(raw.strip().lower(), raw)
+
+
+def _plain_metric_text(text: Any) -> str:
+    out = _display_text(text)
+    if "Heart rate variability" not in out:
+        out = out.replace("HRV", "Heart rate variability (HRV)")
+    if "Resting heart rate" not in out:
+        out = out.replace("RHR", "Resting heart rate")
+    if "acute-to-chronic workload ratio" not in out:
+        out = out.replace("ACWR", "acute-to-chronic workload ratio (ACWR)")
+    out = out.replace("Z2", "Zone 2")
+    out = out.replace("min_readiness", "minimum readiness")
+    out = re.sub(
+        r"\b(\d+)d\b",
+        lambda m: f"{m.group(1)} day" if m.group(1) == "1" else f"{m.group(1)} days",
+        out,
+    )
+    out = re.sub(r"\b(\d+(?:\.\d+)?)h\b", r"\1 hours", out)
+    out = out.replace("day(s)", "days")
+    return out
 
 
 # ---------- local refresh server ----------

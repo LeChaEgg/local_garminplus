@@ -18,7 +18,7 @@ sleep_recovery:
   # HRV / RHR z-scores map linearly to 0..100 across these clamps.
   hrv_z_clamp: [-1.5, 1.5]
   rhr_z_clamp_inverted: [-1.5, 1.5]   # lower RHR is better
-  # Garmin sleep score is already 0..100; we just clamp.
+  # Source sleep score is already 0..100; we just clamp.
   garmin_sleep_score_clamp: [40, 100]
 
 load_balance:

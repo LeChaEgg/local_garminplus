@@ -282,7 +282,7 @@ def compute_readiness(
     if sleep_hours is not None:
         reasons.append(f"sleep duration {sleep_hours:.1f}h -> {sub.sleep_duration:.0f}/100")
     if garmin_sleep is not None:
-        reasons.append(f"Garmin sleep score {garmin_sleep:.0f} -> {sub.garmin_sleep_score:.0f}/100")
+        reasons.append(f"source sleep score {garmin_sleep:.0f} -> {sub.garmin_sleep_score:.0f}/100")
     if hrv_stat.z is not None:
         reasons.append(
             f"HRV {hrv_stat.latest:.1f} vs baseline {hrv_stat.mean:.1f} (z={hrv_stat.z:+.2f}) "

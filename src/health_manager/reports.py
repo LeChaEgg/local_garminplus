@@ -15,7 +15,7 @@ from typing import Any
 
 import pandas as pd
 
-from .config import Goals, Settings
+from .config import Goals, Settings, canonical_sport, load_sport_aliases
 from .metrics import BaselineStat, baseline
 from .recommender import Recommendation
 from .storage import (
@@ -234,7 +234,10 @@ def write_weekly(settings: Settings, goals: Goals, as_of: date) -> tuple[Path, P
         activities = read_activities(conn)
         body = read_body_metrics(conn)
 
-    payload = _weekly_payload(window_start, window_end, wellness, activities, body, goals)
+    sport_aliases = load_sport_aliases(settings.sport_aliases_path)
+    payload = _weekly_payload(
+        window_start, window_end, wellness, activities, body, goals, sport_aliases
+    )
     json_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     md_path.write_text(_render_weekly_md(payload, goals), encoding="utf-8")
 
@@ -250,6 +253,7 @@ def _weekly_payload(
     activities: pd.DataFrame,
     body: pd.DataFrame,
     goals: Goals,
+    sport_aliases: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if wellness.empty:
         wk_well = wellness
@@ -281,10 +285,11 @@ def _weekly_payload(
         else None
     )
 
-    minutes_by_sport = _minutes_by_sport_window(activities, start, end)
-    z2 = _z2_minutes_window(activities, start, end)
+    aliases = sport_aliases or load_sport_aliases(None)
+    minutes_by_sport = _minutes_by_sport_window(activities, start, end, aliases)
+    z2 = _z2_minutes_window(activities, start, end, aliases)
     hard = _hard_sessions_window(activities, start, end)
-    strength = _strength_sessions_window(activities, start, end)
+    strength = _strength_sessions_window(activities, start, end, aliases)
 
     body_delta = None
     if not body.empty:
@@ -327,7 +332,10 @@ def _weekly_payload(
 # aren't reused here.
 
 def _minutes_by_sport_window(
-    activities: pd.DataFrame, start: date, end: date
+    activities: pd.DataFrame,
+    start: date,
+    end: date,
+    sport_aliases: dict[str, str] | None = None,
 ) -> dict[str, float]:
     if activities.empty:
         return {}
@@ -335,10 +343,16 @@ def _minutes_by_sport_window(
     if df.empty:
         return {}
     df["duration_min"] = pd.to_numeric(df["duration_min"], errors="coerce").fillna(0)
-    return df.groupby(df["sport"].fillna("unknown"))["duration_min"].sum().to_dict()
+    df["sport_key"] = _sport_key_series(df, sport_aliases)
+    return df.groupby("sport_key")["duration_min"].sum().to_dict()
 
 
-def _z2_minutes_window(activities: pd.DataFrame, start: date, end: date) -> float:
+def _z2_minutes_window(
+    activities: pd.DataFrame,
+    start: date,
+    end: date,
+    sport_aliases: dict[str, str] | None = None,
+) -> float:
     if activities.empty:
         return 0.0
     df = activities[(activities["date"] >= start) & (activities["date"] <= end)].copy()
@@ -346,7 +360,7 @@ def _z2_minutes_window(activities: pd.DataFrame, start: date, end: date) -> floa
         return 0.0
     df["duration_min"] = pd.to_numeric(df["duration_min"], errors="coerce").fillna(0)
     df["intensity"] = pd.to_numeric(df["intensity"], errors="coerce")
-    sport_ok = df["sport"].isin(["Run", "Ride", "Walk", "Hike", "VirtualRide"])
+    sport_ok = _sport_key_series(df, sport_aliases).isin(["run", "bike", "walk", "hike"])
     z2_mask = (df["intensity"].isna() | (df["intensity"] < 70)) & sport_ok
     return float(df.loc[z2_mask, "duration_min"].sum())
 
@@ -362,25 +376,36 @@ def _hard_sessions_window(activities: pd.DataFrame, start: date, end: date) -> i
     return int(mask.sum())
 
 
-def _strength_sessions_window(activities: pd.DataFrame, start: date, end: date) -> int:
+def _strength_sessions_window(
+    activities: pd.DataFrame,
+    start: date,
+    end: date,
+    sport_aliases: dict[str, str] | None = None,
+) -> int:
     if activities.empty:
         return 0
     df = activities[(activities["date"] >= start) & (activities["date"] <= end)]
     if df.empty:
         return 0
-    sport = df["sport"].fillna("").str.lower()
-    typ = (
-        df["type"].fillna("").str.lower()
-        if "type" in df.columns
-        else pd.Series("", index=df.index)
-    )
-    return int(
-        (
-            (sport == "weighttraining")
-            | sport.str.contains("strength")
-            | typ.str.contains("strength")
-        ).sum()
-    )
+    return int((_sport_key_series(df, sport_aliases) == "strength").sum())
+
+
+def _sport_key_series(
+    activities: pd.DataFrame, sport_aliases: dict[str, str] | None = None
+) -> pd.Series:
+    aliases = sport_aliases or load_sport_aliases(None)
+    raw = pd.Series("", index=activities.index, dtype="object")
+    if "type" in activities.columns:
+        raw = activities["type"].fillna("").astype(str)
+    if "sport" in activities.columns:
+        raw = activities["sport"].fillna("").astype(str).where(
+            activities["sport"].fillna("").astype(str) != "", raw
+        )
+    canonical = raw.map(lambda value: canonical_sport(value, aliases))
+    if "sport_canonical" in activities.columns:
+        stored = activities["sport_canonical"].fillna("").astype(str).str.strip().str.lower()
+        canonical = canonical.where(stored == "", stored)
+    return canonical.replace("", "other")
 
 
 def _render_weekly_md(p: dict[str, Any], goals: Goals) -> str:
@@ -452,7 +477,10 @@ def write_monthly(settings: Settings, goals: Goals, as_of: date) -> tuple[Path, 
         body = read_body_metrics(conn)
         _checkins = read_checkins(conn)  # unused for now, reserved for future
 
-    payload = _monthly_payload(month_start, month_end, wellness, activities, body, goals)
+    sport_aliases = load_sport_aliases(settings.sport_aliases_path)
+    payload = _monthly_payload(
+        month_start, month_end, wellness, activities, body, goals, sport_aliases
+    )
     json_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     md_path.write_text(_render_monthly_md(payload, goals), encoding="utf-8")
 
@@ -468,6 +496,7 @@ def _monthly_payload(
     activities: pd.DataFrame,
     body: pd.DataFrame,
     goals: Goals,
+    sport_aliases: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if not wellness.empty:
         mw = wellness[(wellness["date"] >= month_start) & (wellness["date"] <= month_end)]
@@ -484,10 +513,11 @@ def _monthly_payload(
         else 0.0
     )
     minutes_by_sport: dict[str, float] = {}
-    if not ma.empty and "sport" in ma.columns:
+    if not ma.empty:
         ma2 = ma.copy()
         ma2["duration_min"] = pd.to_numeric(ma2["duration_min"], errors="coerce").fillna(0)
-        minutes_by_sport = ma2.groupby(ma2["sport"].fillna("unknown"))["duration_min"].sum().to_dict()
+        ma2["sport_key"] = _sport_key_series(ma2, sport_aliases)
+        minutes_by_sport = ma2.groupby("sport_key")["duration_min"].sum().to_dict()
 
     body_delta = None
     if not body.empty:

@@ -17,6 +17,7 @@ from health_manager.dashboard import build_and_write_dashboard, build_dashboard_
 from health_manager.storage import (
     connect,
     init_db,
+    set_meta,
     upsert_activity,
     upsert_wellness,
 )
@@ -40,6 +41,7 @@ def _settings(tmp_path: Path, project_root: Path) -> Settings:
 def _seed_db(settings: Settings) -> None:
     with connect(settings.sqlite_path) as conn:
         init_db(conn)
+        set_meta(conn, "last_sync_utc", "2026-05-19T00:00:00+00:00")
         for i in range(14, 0, -1):
             upsert_wellness(
                 conn,
@@ -65,6 +67,25 @@ def _seed_db(settings: Settings) -> None:
                 "load": 45.0,
                 "intensity": 65.0,
                 "avg_hr": 138.0,
+                "is_hard": 0,
+                "raw_json": "{}",
+            },
+        )
+        upsert_activity(
+            conn,
+            {
+                "id": "a2",
+                "date": "2026-05-19",
+                "sport": "Ride",
+                "sport_canonical": "bike",
+                "type": "Ride",
+                "name": "Morning ride",
+                "duration_min": 62.0,
+                "distance_m": 25100.0,
+                "load": 70.0,
+                "intensity": 72.0,
+                "avg_hr": 132.0,
+                "source_updated_at": "2026-05-19T01:30:00+00:00",
                 "is_hard": 0,
                 "raw_json": "{}",
             },
@@ -127,6 +148,17 @@ def test_dashboard_builds_with_seeded_data(tmp_path, project_root):
     assert "<pre>" not in text
     # Workout library is grouped.
     assert 'class="wk-group"' in text
+    # Freshness and recent activity are visible.
+    assert "Data freshness" in text
+    assert "Latest Intervals.icu sync" in text
+    assert "Latest synced activity" in text
+    assert "Recent sports activities" in text
+    assert "Morning ride" in text
+    assert "Training load" in text
+    assert "Average heart rate" in text
+    # Common dashboard labels use plain-language names before abbreviations.
+    assert "Heart rate variability (HRV)" in text
+    assert "Resting heart rate" in text
     # Data quality coverage bars.
     assert 'class="coverage-bar"' in text
     # Dark mode CSS present.

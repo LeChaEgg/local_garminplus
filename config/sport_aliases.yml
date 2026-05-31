@@ -10,6 +10,10 @@
 run:
   - Run
   - Running
+  - OutdoorRun
+  - Outdoor Run
+  - IndoorRun
+  - Indoor Run
   - VirtualRun
   - TrailRun
   - TreadmillRun
@@ -17,6 +21,10 @@ run:
 bike:
   - Ride
   - Cycling
+  - OutdoorCycle
+  - Outdoor Cycle
+  - IndoorCycle
+  - Indoor Cycle
   - VirtualRide
   - EBikeRide
   - GravelRide
@@ -27,6 +35,10 @@ bike:
 walk:
   - Walk
   - Walking
+  - OutdoorWalk
+  - Outdoor Walk
+  - IndoorWalk
+  - Indoor Walk
   - Treadmill_Walk
 
 hike:
@@ -37,14 +49,26 @@ swim:
   - Swim
   - Swimming
   - OpenWaterSwim
+  - OpenWaterSwimming
+  - Open Water Swimming
   - PoolSwim
+  - PoolSwimming
+  - Pool Swimming
 
 strength:
   - WeightTraining
   - Strength
   - StrengthTraining
+  - TraditionalStrengthTraining
+  - Traditional Strength Training
+  - FunctionalStrengthTraining
+  - Functional Strength Training
+  - CoreTraining
+  - Core Training
   - Workout
   - HIIT
+  - HighIntensityIntervalTraining
+  - High Intensity Interval Training
   - Crossfit
 
 recovery:

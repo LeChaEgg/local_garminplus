@@ -316,17 +316,30 @@ def canonical_sport(raw_value: str | None, aliases: dict[str, str]) -> str:
 
 
 _DEFAULT_SPORT_ALIASES: dict[str, list[str]] = {
-    "run": ["Run", "Running", "VirtualRun", "TrailRun", "TreadmillRun"],
-    "bike": [
-        "Ride", "Cycling", "VirtualRide", "EBikeRide", "GravelRide",
-        "MountainBikeRide", "IndoorRide", "Handcycle",
+    "run": [
+        "Run", "Running", "OutdoorRun", "Outdoor Run", "IndoorRun", "Indoor Run",
+        "VirtualRun", "TrailRun", "TreadmillRun",
     ],
-    "walk": ["Walk", "Walking", "Treadmill_Walk"],
+    "bike": [
+        "Ride", "Cycling", "OutdoorCycle", "Outdoor Cycle", "IndoorCycle",
+        "Indoor Cycle", "VirtualRide", "EBikeRide", "GravelRide", "MountainBikeRide",
+        "IndoorRide", "Handcycle",
+    ],
+    "walk": [
+        "Walk", "Walking", "OutdoorWalk", "Outdoor Walk", "IndoorWalk",
+        "Indoor Walk", "Treadmill_Walk",
+    ],
     "hike": ["Hike", "Hiking"],
-    "swim": ["Swim", "Swimming", "OpenWaterSwim", "PoolSwim"],
+    "swim": [
+        "Swim", "Swimming", "OpenWaterSwim", "OpenWaterSwimming",
+        "Open Water Swimming", "PoolSwim", "PoolSwimming", "Pool Swimming",
+    ],
     "strength": [
         "WeightTraining", "Strength", "StrengthTraining", "Workout",
-        "HIIT", "Crossfit",
+        "TraditionalStrengthTraining", "Traditional Strength Training",
+        "FunctionalStrengthTraining", "Functional Strength Training", "CoreTraining",
+        "Core Training", "HIIT", "HighIntensityIntervalTraining",
+        "High Intensity Interval Training", "Crossfit",
     ],
     "recovery": [
         "Yoga", "Stretching", "Pilates", "BreathWork", "Meditation", "Mobility",

@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 import httpx
+import pandas as pd
 import respx
 
 from health_manager.config import (
@@ -18,7 +19,13 @@ from health_manager.config import (
 from health_manager.ingest import sync as run_sync
 from health_manager.intervals_client import IntervalsClient
 from health_manager.recommender import recommend
-from health_manager.reports import write_daily, write_monthly, write_weekly
+from health_manager.reports import (
+    _monthly_payload,
+    _weekly_payload,
+    write_daily,
+    write_monthly,
+    write_weekly,
+)
 from health_manager.scoring import compute_confidence, compute_readiness
 from health_manager.storage import (
     connect,
@@ -147,3 +154,73 @@ def test_weekly_and_monthly_reports(tmp_path, project_root, fixtures_dir):
     assert mmd.exists() and mjs.exists()
     monthly_payload = json.loads(mjs.read_text(encoding="utf-8"))
     assert monthly_payload["period"] == "monthly"
+
+
+def test_reports_use_canonical_sports_for_apple_watch_labels(project_root):
+    goals = load_goals(project_root / "config" / "goals.md")
+    activities = pd.DataFrame(
+        [
+            {
+                "date": date(2026, 5, 13),
+                "sport": "Running",
+                "sport_canonical": "run",
+                "duration_min": 30,
+                "intensity": 65,
+                "is_hard": 0,
+            },
+            {
+                "date": date(2026, 5, 14),
+                "sport": "Run",
+                "sport_canonical": "run",
+                "duration_min": 20,
+                "intensity": 80,
+                "is_hard": 1,
+            },
+            {
+                "date": date(2026, 5, 15),
+                "sport": "Cycling",
+                "sport_canonical": "bike",
+                "duration_min": 40,
+                "intensity": None,
+                "is_hard": 0,
+            },
+            {
+                "date": date(2026, 5, 16),
+                "sport": "Traditional Strength Training",
+                "sport_canonical": "strength",
+                "duration_min": 50,
+                "intensity": None,
+                "is_hard": 0,
+            },
+        ]
+    )
+
+    weekly = _weekly_payload(
+        date(2026, 5, 13),
+        date(2026, 5, 19),
+        pd.DataFrame(),
+        activities,
+        pd.DataFrame(),
+        goals,
+    )
+    monthly = _monthly_payload(
+        date(2026, 5, 1),
+        date(2026, 5, 31),
+        pd.DataFrame(),
+        activities,
+        pd.DataFrame(),
+        goals,
+    )
+
+    assert weekly["training"]["minutes_by_sport"] == {
+        "bike": 40.0,
+        "run": 50.0,
+        "strength": 50.0,
+    }
+    assert weekly["training"]["z2_minutes"] == 70.0
+    assert weekly["training"]["strength_sessions"] == 1
+    assert monthly["minutes_by_sport"] == {
+        "bike": 40.0,
+        "run": 50.0,
+        "strength": 50.0,
+    }

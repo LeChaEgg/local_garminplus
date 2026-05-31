@@ -230,7 +230,7 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 
 def _migration_v1_to_v2(cur: sqlite3.Cursor) -> list[str]:
-    """v1 -> v2: add canonical Garmin/Intervals.icu fields to wellness/activities."""
+    """v1 -> v2: add canonical source/Intervals.icu fields to wellness/activities."""
     wellness_cols = {
         "hrv_sdnn": "REAL",
         "avg_sleeping_hr": "REAL",
